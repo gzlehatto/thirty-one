@@ -187,6 +187,10 @@
     .source-badge.from-discard { background:#e67e22; color:#fff; } .source-badge.from-deck { background:#27ae60; color:#fff; }
     @keyframes cardSlideIn { from{transform:translateY(-18px) scale(0.88);opacity:0} to{transform:translateY(0) scale(1);opacity:1} }
     .card.new-card { animation:cardSlideIn 0.28s ease-out; }
+    .card.hand-selectable { cursor:pointer; }
+    .card.hand-selectable:hover { border-color:rgba(241,196,15,0.5); transform:translateY(-3px); }
+    .card.hand-selected { border-color:#f1c40f !important; box-shadow:0 0 0 3px rgba(241,196,15,0.65), 0 6px 16px rgba(0,0,0,0.4) !important; transform:translateY(-7px) !important; }
+    .card.discard-pick.swap-ready { border-color:#f1c40f !important; box-shadow:0 0 0 3px rgba(241,196,15,0.65) !important; animation:discardPulse 0.8s ease-in-out infinite !important; }
     @keyframes cardDeal { from{transform:translateY(-100px) rotate(-20deg) scale(0.5);opacity:0} to{transform:translateY(0) rotate(0deg) scale(1);opacity:1} }
     .card.deal-anim { animation:cardDeal 0.40s cubic-bezier(0.2,0.8,0.3,1.0) both; }
     @keyframes badgePop { from{transform:translateX(-50%) scale(0.5);opacity:0} to{transform:translateX(-50%) scale(1);opacity:1} }
@@ -553,7 +557,7 @@ let houseRuleKnockLow=true,houseRuleTripleAces=true,houseRuleFreeRide=true;
 // Max starting chips (3 normally, 4 with Free Ride)
 function maxLives(){ return houseRuleFreeRide ? 4 : 3; }
 // Round-state flags
-let wasKnockedOffDeal=false,tripleAcesIdx=null,knockQueued=false;
+let wasKnockedOffDeal=false,tripleAcesIdx=null,knockQueued=false,selectedHandIdx=null;
 // Round counter (resets each match, used for early-game AI logic)
 let roundCount=0;
 
@@ -823,6 +827,7 @@ function updateTurnUI(){
     // Auto-fire queued knock if applicable
     if(knockQueued&&!inLast){knockQueued=false;setTimeout(knock,120);return;}
     knockQueued=false;
+    selectedHandIdx=null;
     setKnockBtn(!inLast);setPileInteractive(true);
   } else {
     setTurnBanner('others-turn','🔵 '+p.name+"'s Turn");setStatus(p.name+' is thinking...');
@@ -834,17 +839,35 @@ function updateTurnUI(){
 
 function highlightZones(){
   document.querySelectorAll('.zone,.opp-mini').forEach(z=>z.classList.remove('active-you','active-them'));
-  if(players[activeIdx].isHuman){document.getElementById('myZone').classList.add('active-you');setMyZoneLabel(turnPhase==='discard'?'Your Hand — click a card to discard':'Your Hand — draw a card first');}
+  if(players[activeIdx].isHuman){document.getElementById('myZone').classList.add('active-you');setMyZoneLabel(turnPhase==='discard'?'Your Hand — click a card to discard':'Your Hand — draw, or tap a card to swap');}
   else{const el=document.getElementById('oppMini_'+activeIdx);if(el)el.classList.add('active-them');setMyZoneLabel('Your Hand');}
 }
 
 function playerTakeDiscard(){
   if(!gameActive||!isHumanTurn()||turnPhase!=='draw')return;
   if(!topDiscard())return;
-  if(activeIdx===mustDrawIdx)return; // only the first player after a knock must draw from deck
+  if(activeIdx===mustDrawIdx)return;
+  // ── Pre-selected swap: player tapped a hand card first, now taps discard ──
+  if(selectedHandIdx!==null){
+    isFirstAction=false;
+    const si=selectedHandIdx; selectedHandIdx=null;
+    const taken=discardPile.pop();
+    const discarded=players[activeIdx].hand.splice(si,1)[0];
+    discardPile.push(discarded);
+    players[activeIdx].hand.splice(si,0,taken);
+    inferredSuits[activeIdx]=taken.suit;
+    lastDrawSource='discard';lastDrawnIdx=si;
+    turnPhase='draw';setPileInteractive(false);SFX.card();
+    renderAll();highlightZones();
+    showPilesOverlay('tc-draw-discard','You Swap',taken,false,false);
+    if(checkHuman31())return;
+    setTimeout(afterTurnActions,1100);
+    return;
+  }
+  // ── Normal flow: take discard into hand, then pick what to discard ──
   isFirstAction=false;
   const card=discardPile.pop();players[activeIdx].hand.push(card);
-  inferredSuits[activeIdx]=card.suit; // visible to all — AI notes what you're chasing
+  inferredSuits[activeIdx]=card.suit;
   lastDrawSource='discard';lastDrawnIdx=players[activeIdx].hand.length-1;
   turnPhase='discard';setPileInteractive(false);SFX.card();
   renderAll();highlightZones();
@@ -857,6 +880,7 @@ function playerDrawFromDeck(){
   if(!gameActive||!isHumanTurn()||turnPhase!=='draw')return;
   if(!deck.length){setStatus("The deck is empty!");return;}
   isFirstAction=false;
+  selectedHandIdx=null;
   const card=deck.pop();players[activeIdx].hand.push(card);
   lastDrawSource='deck';lastDrawnIdx=players[activeIdx].hand.length-1;
   turnPhase='discard';setPileInteractive(false);SFX.card();
@@ -1285,13 +1309,29 @@ function renderOpponentMinis(revealAll){
   });
 }
 
+function selectHandCard(idx){
+  if(!gameActive||!isHumanTurn()||turnPhase!=='draw'||activeIdx===mustDrawIdx)return;
+  selectedHandIdx=(selectedHandIdx===idx)?null:idx;
+  renderMyZone();renderDiscardSlot();
+  if(selectedHandIdx!==null){
+    setStatus("Card selected — <strong>tap the discard pile to swap</strong>, or draw from the deck.");
+  } else {
+    setMyZoneLabel('Your Hand — draw, or tap a card to swap');
+    setStatus('');
+  }
+}
+
 function renderMyZone(){
   const me=players[0];const el=document.getElementById('myHand');el.innerHTML='';
   const inDiscard=gameActive&&isHumanTurn()&&turnPhase==='discard';
+  const inDraw=gameActive&&isHumanTurn()&&turnPhase==='draw'&&activeIdx!==mustDrawIdx&&topDiscard();
   me.hand.forEach((card,i)=>{
     const cls=[];if(inDiscard)cls.push('discard-candidate');
+    if(inDraw)cls.push('hand-selectable');
+    if(inDraw&&i===selectedHandIdx)cls.push('hand-selected');
     const isNew=i===lastDrawnIdx&&lastDrawSource!==null;if(isNew)cls.push('new-card');
-    const fn=inDiscard?()=>playerDiscard(i):null;const div=makeCard(card,fn,cls);
+    let fn=inDiscard?()=>playerDiscard(i):inDraw?()=>selectHandCard(i):null;
+    const div=makeCard(card,fn,cls);
     if(isNew&&lastDrawSource){const b=document.createElement('span');b.className='source-badge from-'+lastDrawSource;b.textContent=lastDrawSource==='discard'?'\u2190 discard':'\u2190 deck';div.appendChild(b);}
     el.appendChild(div);
   });
@@ -1326,7 +1366,7 @@ function renderDiscardSlot(){
   const top=topDiscard();
   if(top){
     const canTake=gameActive&&isHumanTurn()&&turnPhase==='draw'&&activeIdx!==mustDrawIdx;
-    const cls=['discard-pick'];if(canTake)cls.push('pulsing');
+    const cls=['discard-pick'];if(canTake)cls.push(selectedHandIdx!==null?'swap-ready':'pulsing');
     const card=makeCard(top,canTake?playerTakeDiscard:null,cls);if(!canTake)card.style.cursor='default';
     slot.appendChild(card);
   } else {const e=document.createElement('div');e.className='empty-discard';e.textContent='Empty';slot.appendChild(e);}
