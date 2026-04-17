@@ -178,11 +178,11 @@
     .corner-rank { font-family:'Rubik',Arial,sans-serif; font-size:1.7rem; font-weight:700; line-height:1.1; }
     .corner-suit { display:none; }
     .card.sm .corner-rank { font-size:1.3rem; }
-    .card-center-pip { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); font-size:5rem; line-height:1; pointer-events:none; }
-    .card.sm .card-center-pip { font-size:2.8rem; }
+    .card-center-pip { position:absolute; top:65%; left:50%; transform:translate(-50%,-50%); font-size:3.5rem; line-height:1; pointer-events:none; }
+    .card.sm .card-center-pip { font-size:2.2rem; }
     .action-card-big .card-corner { padding:2px; }
     .action-card-big .corner-rank { font-size:2.2rem; }
-    .action-card-big .card-center-pip { font-size:3.8rem; }
+    .action-card-big .card-center-pip { font-size:4.8rem; top:63%; }
     .source-badge { position:absolute; top:-11px; left:50%; transform:translateX(-50%); font-size:0.55rem; font-weight:bold; padding:2px 5px; border-radius:4px; white-space:nowrap; pointer-events:none; animation:badgePop 0.25s ease-out; }
     .source-badge.from-discard { background:#e67e22; color:#fff; } .source-badge.from-deck { background:#27ae60; color:#fff; }
     @keyframes cardSlideIn { from{transform:translateY(-18px) scale(0.88);opacity:0} to{transform:translateY(0) scale(1);opacity:1} }
@@ -291,6 +291,7 @@
     @media(max-width:480px){
       .card,.draw-pile,.empty-discard{width:56px;height:82px} .card.sm{width:40px;height:58px}
       #tableCenter{padding:14px 18px;border-radius:60px}
+      .card-center-pip{font-size:3.2rem}
     }
     /* ── Height compaction for bottom-dock mode only ── */
     @media(max-width:699px) and (max-height:820px){
@@ -302,11 +303,12 @@
       .reaction-bar{margin-bottom:4px}
       .tracking-panel{padding:5px 10px;margin-bottom:4px}
       #chatLog{height:50px}
+      .card-center-pip{font-size:3.2rem}
     }
     @media(max-width:699px) and (max-height:720px){
       h1{font-size:1.3rem;margin-bottom:4px}
       .card,.draw-pile,.empty-discard{width:56px;height:82px}
-      .card-center-pip{font-size:2.2rem}
+      .card-center-pip{font-size:2.8rem}
       #tableCenter{padding:12px 20px;border-radius:70px}
       #tableArea{gap:5px}
       #chatLog{height:38px;font-size:0.76rem}
@@ -316,7 +318,7 @@
     @media(max-width:699px) and (max-height:600px){
       h1{font-size:1.1rem;margin-bottom:2px}
       .card,.draw-pile,.empty-discard{width:48px;height:70px}
-      .card-center-pip{font-size:1.8rem}
+      .card-center-pip{font-size:2.2rem}
       .cards-row{min-height:76px}
       #tableCenter{padding:8px 14px}
       #tableArea{gap:3px}
