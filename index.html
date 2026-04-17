@@ -824,8 +824,23 @@ function updateTurnUI(){
     else if(inLast){setTurnBanner('your-turn','🟢 Your Last Turn');setStatus("Last chance — take the <strong>top discard</strong> (orange) or <strong>draw from the deck</strong> (green), then discard one.");}
     else{setTurnBanner('your-turn','🟢 Your Turn');setStatus("Take the <strong>top discard</strong> (orange) or <strong>draw from the deck</strong> (green).");}
 
-    // Auto-fire queued knock if applicable
-    if(knockQueued&&!inLast){knockQueued=false;setTimeout(knock,120);return;}
+    // Auto-fire queued knock — but grab 31 first if it's sitting in the discard
+    if(knockQueued&&!inLast){
+      knockQueued=false;
+      const discTop=topDiscard();
+      const discWould31=discTop&&bestScoreAfterDiscard([...players[activeIdx].hand,discTop])===31;
+      if(discWould31){
+        // Take the discard into hand and trigger the 31 celebration
+        isFirstAction=false;
+        const card=discardPile.pop();players[activeIdx].hand.push(card);
+        inferredSuits[activeIdx]=card.suit;
+        lastDrawSource='discard';lastDrawnIdx=players[activeIdx].hand.length-1;
+        setPileInteractive(false);SFX.card();
+        checkHuman31();
+        return;
+      }
+      setTimeout(knock,120);return;
+    }
     knockQueued=false;
     selectedHandIdx=null;
     setKnockBtn(!inLast);setPileInteractive(true);
