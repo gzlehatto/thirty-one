@@ -1,0 +1,1594 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Thirty-One Card Game</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@700;900&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: Arial, sans-serif;
+      background:
+        repeating-linear-gradient(45deg,rgba(0,0,0,0) 0px,rgba(0,0,0,0) 3px,rgba(0,0,0,0.04) 3px,rgba(0,0,0,0.04) 4px),
+        repeating-linear-gradient(-45deg,rgba(0,0,0,0) 0px,rgba(0,0,0,0) 3px,rgba(0,0,0,0.04) 3px,rgba(0,0,0,0.04) 4px),
+        radial-gradient(ellipse at center, #1e7a42 0%, #0a3d1f 100%);
+      min-height: 100vh; color: white; padding: 12px 12px 310px 12px;
+      transition: background 0.85s ease;
+    }
+    body.knock-active {
+      background:
+        repeating-linear-gradient(45deg,rgba(0,0,0,0) 0px,rgba(0,0,0,0) 3px,rgba(0,0,0,0.05) 3px,rgba(0,0,0,0.05) 4px),
+        repeating-linear-gradient(-45deg,rgba(0,0,0,0) 0px,rgba(0,0,0,0) 3px,rgba(0,0,0,0.05) 3px,rgba(0,0,0,0.05) 4px),
+        radial-gradient(ellipse at center, #5c1510 0%, #2a0808 100%);
+    }
+    /* ── Your-turn: subtle warm lift on the felt ── */
+    body.your-turn:not(.knock-active) {
+      background:
+        repeating-linear-gradient(45deg,rgba(0,0,0,0) 0px,rgba(0,0,0,0) 3px,rgba(0,0,0,0.04) 3px,rgba(0,0,0,0.04) 4px),
+        repeating-linear-gradient(-45deg,rgba(0,0,0,0) 0px,rgba(0,0,0,0) 3px,rgba(0,0,0,0.04) 3px,rgba(0,0,0,0.04) 4px),
+        radial-gradient(ellipse at center, #22924a 0%, #0c4824 100%);
+    }
+    h1 { text-align:center; font-size:1.8rem; text-shadow:2px 2px 4px rgba(0,0,0,0.5); margin-bottom:10px; }
+    /* ── Setup ── */
+    #setupScreen { max-width:480px; margin:60px auto 0; text-align:center; }
+    .setup-box { background:rgba(0,0,0,0.35); border-radius:16px; padding:30px 36px; border:2px solid rgba(255,255,255,0.1); }
+    .setup-box h2 { font-size:1.3rem; margin-bottom:20px; opacity:0.9; }
+    .count-row { display:flex; justify-content:center; gap:12px; margin-bottom:22px; }
+    .count-btn { width:60px; height:60px; font-size:1.6rem; font-weight:bold; border:2px solid rgba(255,255,255,0.3); border-radius:12px; background:rgba(255,255,255,0.08); color:white; cursor:pointer; transition:background 0.2s,transform 0.1s; }
+    .count-btn:hover { background:rgba(255,255,255,0.16); }
+    .count-btn.active { background:rgba(46,204,113,0.25); border-color:#2ecc71; color:#5fffab; }
+    .count-btn:active { transform:scale(0.94); }
+    #playerPreview { font-size:0.9rem; opacity:0.75; margin-bottom:24px; min-height:22px; line-height:1.6; }
+    .preview-name { display:inline-block; background:rgba(255,255,255,0.1); border-radius:6px; padding:2px 9px; margin:2px; }
+    .preview-name.human { color:#5fffab; }
+    .start-btn { background:#27ae60; color:white; padding:13px 36px; font-size:1.05rem; font-weight:bold; border:none; border-radius:10px; cursor:pointer; transition:background 0.2s,transform 0.1s; width:100%; }
+    .start-btn:hover { background:#1e8449; } .start-btn:active { transform:scale(0.97); }
+    /* ── How to Play ── */
+    .htp-details { margin-top:18px; border-top:1px solid rgba(255,255,255,0.1); padding-top:14px; text-align:left; }
+    .htp-details summary { font-size:0.78rem; text-transform:uppercase; letter-spacing:1.1px; opacity:0.55; cursor:pointer; text-align:center; list-style:none; user-select:none; }
+    .htp-details summary::-webkit-details-marker { display:none; }
+    .htp-details summary::after { content:' ▾'; }
+    .htp-details[open] summary::after { content:' ▴'; }
+    .htp-details summary:hover { opacity:0.85; }
+    .htp-body { margin-top:12px; font-size:0.82rem; line-height:1.65; opacity:0.82; color:rgba(255,255,255,0.9); }
+    .htp-body p { margin-bottom:10px; }
+    .htp-body strong { color:#5fffab; }
+    /* ── How to Play modal (in-game) ── */
+    #htpModal { display:none; position:fixed; inset:0; z-index:200; background:rgba(0,0,0,0.75); align-items:center; justify-content:center; padding:20px; }
+    #htpModal.open { display:flex; }
+    .htp-modal-box { background:#0d3d1e; border:2px solid rgba(255,255,255,0.12); border-radius:16px; padding:24px 26px; max-width:480px; width:100%; max-height:80vh; overflow-y:auto; position:relative; }
+    .htp-modal-box h2 { font-size:1.1rem; margin-bottom:14px; opacity:0.9; text-align:center; }
+    .htp-close { position:absolute; top:12px; right:14px; background:none; border:none; color:white; font-size:1.4rem; cursor:pointer; opacity:0.55; line-height:1; }
+    .htp-close:hover { opacity:1; }
+    .htp-btn { background:none; border:none; color:rgba(255,255,255,0.45); font-size:0.7rem; text-transform:uppercase; letter-spacing:0.8px; cursor:pointer; padding:0; margin-top:6px; }
+    #confettiCanvas { position:fixed; inset:0; z-index:400; pointer-events:none; display:none; }
+    .htp-btn:hover { color:rgba(255,255,255,0.8); }
+    /* ── House Rules ── */
+    .house-rules { margin-top:20px; border-top:1px solid rgba(255,255,255,0.1); padding-top:16px; text-align:left; }
+    .house-rules h3 { font-size:0.72rem; text-transform:uppercase; letter-spacing:1.2px; opacity:0.5; margin-bottom:12px; text-align:center; }
+    .rule-row { display:flex; align-items:flex-start; gap:10px; margin-bottom:11px; }
+    .rule-row input[type=checkbox] { width:17px; height:17px; flex-shrink:0; margin-top:3px; cursor:pointer; accent-color:#2ecc71; }
+    .rule-label { font-size:0.8rem; line-height:1.45; opacity:0.85; cursor:pointer; }
+    .rule-label strong { color:#5fffab; display:block; margin-bottom:1px; font-size:0.84rem; }
+    /* ── Zone winner highlight (triple aces / 5-under win) ── */
+    .opp-mini.zone-winner { border-color:#f1c40f!important; box-shadow:0 0 22px rgba(241,196,15,0.55)!important; }
+    .zone.zone-winner { border-color:#f1c40f!important; box-shadow:0 0 26px rgba(241,196,15,0.5)!important; }
+    /* ── Game screen ── */
+    #gameScreen { display:none; }
+    /* ── Table area ── */
+    #tableArea { display:flex; flex-direction:column; align-items:center; gap:8px; max-width:800px; margin:0 auto; }
+    /* ── Opponents row ── */
+    #opponentsRow { display:flex; justify-content:center; align-items:flex-end; gap:14px; width:100%; padding:0 8px; }
+    #opponentsRow.arc-3 .opp-mini:first-child,
+    #opponentsRow.arc-3 .opp-mini:last-child { margin-top:22px; }
+    /* ── Mini opponent panel ── */
+    .opp-mini { display:flex; flex-direction:column; align-items:center; background:rgba(0,0,0,0.3); border-radius:10px; padding:7px 9px 8px; border:2px solid transparent; min-width:100px; max-width:160px; flex:1; transition:border-color 0.3s,box-shadow 0.3s; position:relative; }
+    .opp-mini.active-them { border-color:rgba(52,152,219,0.55); box-shadow:0 0 16px rgba(52,152,219,0.2); }
+    .opp-mini.zone-loser  { border-color:#e74c3c!important; box-shadow:0 0 22px rgba(231,76,60,0.5)!important; }
+    .mini-header { display:flex; align-items:center; justify-content:center; gap:4px; margin-bottom:5px; flex-wrap:wrap; }
+    .mini-name { font-size:0.72rem; text-transform:uppercase; letter-spacing:0.5px; opacity:0.7; white-space:nowrap; }
+    /* ── Fanned opponent cards ── */
+    .mini-cards { position:relative; display:block; width:88px; height:74px; margin:4px auto 2px; flex-shrink:0; }
+    .mini-cards .card.sm { position:absolute; top:0; box-shadow:2px 2px 6px rgba(0,0,0,0.5); }
+    .mini-cards .card.sm:nth-child(1){ left:0;    transform:rotate(-14deg); transform-origin:center 88%; z-index:1; }
+    .mini-cards .card.sm:nth-child(2){ left:13px; transform:rotate(-4deg);  transform-origin:center 88%; z-index:2; }
+    .mini-cards .card.sm:nth-child(3){ left:26px; transform:rotate(6deg);   transform-origin:center 88%; z-index:1; }
+    .mini-cards .card.sm:nth-child(4){ left:38px; transform:rotate(16deg);  transform-origin:center 88%; z-index:3; }
+    .mini-score { font-size:0.88rem; font-weight:900; background:rgba(255,255,255,0.92); color:#111; border-radius:6px; padding:3px 10px; margin-top:5px; display:inline-block; animation:revealScorePop 0.38s ease-out; }
+    /* ── Avatar ── */
+    .player-avatar { font-size:1.25rem; line-height:1; flex-shrink:0; }
+    /* ── Chips ── */
+    .chip { font-size:0.58rem; font-weight:bold; padding:2px 6px; border-radius:20px; letter-spacing:0.4px; }
+    .chip-dealer  { background:#f39c12; color:#000; }
+    .chip-knocked { background:#e74c3c; color:#fff; animation:badgePop 0.25s ease-out; }
+    .chip-out     { background:#555; color:#aaa; }
+    /* ── Life dots ── */
+    .life-dots { display:flex; gap:4px; align-items:center; }
+    .dot { width:12px; height:12px; border-radius:50%; background:radial-gradient(circle at 38% 35%,#ff7070,#c0392b 58%,#8e1f1f); border:2px solid rgba(255,255,255,0.22); box-shadow:inset 0 1px 2px rgba(255,255,255,0.3),0 2px 4px rgba(0,0,0,0.5),0 0 6px rgba(220,50,50,0.5); transition:background 0.4s,box-shadow 0.4s; }
+    .dot.lost { background:radial-gradient(circle at 40% 35%,#3a3a3a,#181818); border-color:rgba(255,255,255,0.06); box-shadow:inset 0 1px 2px rgba(0,0,0,0.6),0 1px 3px rgba(0,0,0,0.4); }
+    /* ── Free Ride chip (gold, leftmost = last to lose) ── */
+    .dot.free-ride { background:radial-gradient(circle at 38% 35%,#ffe066,#f39c12 58%,#a06000); border:2px solid rgba(255,220,50,0.55); box-shadow:inset 0 1px 2px rgba(255,255,255,0.4),0 2px 4px rgba(0,0,0,0.5),0 0 7px rgba(255,200,0,0.45); }
+    .dot.free-ride.lost { background:radial-gradient(circle at 40% 35%,#3a3a3a,#181818); border-color:rgba(255,255,255,0.06); box-shadow:inset 0 1px 2px rgba(0,0,0,0.6),0 1px 3px rgba(0,0,0,0.4); }
+    @keyframes onRidePulse { 0%,100%{box-shadow:inset 0 1px 2px rgba(255,255,255,0.4),0 2px 4px rgba(0,0,0,0.5),0 0 8px rgba(255,200,0,0.6)} 50%{box-shadow:inset 0 1px 2px rgba(255,255,255,0.55),0 2px 10px rgba(0,0,0,0.4),0 0 20px rgba(255,215,0,1)} }
+    .dot.free-ride.on-ride { background:radial-gradient(circle at 38% 35%,#fff9c4,#ffd700 45%,#c8930a); border-color:rgba(255,240,100,0.9); animation:onRidePulse 1.1s ease-in-out infinite; }
+    /* ── Free Ride text badge ── */
+    .free-ride-badge { display:inline-block; font-size:0.58rem; font-weight:900; padding:2px 6px; border-radius:20px; background:linear-gradient(135deg,#f39c12,#ffd700); color:#3a2000; letter-spacing:0.8px; text-transform:uppercase; margin-left:4px; box-shadow:0 1px 6px rgba(255,200,0,0.5); animation:onRidePulse 1.1s ease-in-out infinite; }
+    /* ── Oval felt center ── */
+    #tableCenter { position:relative; background:rgba(8,55,22,0.52); border:4px solid rgba(101,67,33,0.6); border-radius:90px; padding:18px 32px; box-shadow:inset 0 0 60px rgba(0,80,30,0.4),0 8px 30px rgba(0,0,0,0.5); width:100%; max-width:480px; transition:background 0.4s ease,border-color 0.4s ease,box-shadow 0.4s ease; }
+    body.knock-active #tableCenter { background:rgba(90,12,12,0.68); border-color:rgba(210,90,20,0.75); box-shadow:inset 0 0 60px rgba(150,20,0,0.55),0 8px 30px rgba(0,0,0,0.5),0 0 50px rgba(210,60,0,0.3); }
+    /* ── Table center action pulse states ── */
+    #tableCenter.tc-draw-deck     { background:rgba(15,55,130,0.62); border-color:rgba(80,150,255,0.65); box-shadow:inset 0 0 50px rgba(10,50,150,0.4),0 8px 30px rgba(0,0,0,0.5),0 0 35px rgba(60,120,255,0.2); }
+    #tableCenter.tc-draw-discard  { background:rgba(140,85,5,0.64); border-color:rgba(255,160,40,0.65); box-shadow:inset 0 0 50px rgba(150,90,0,0.4),0 8px 30px rgba(0,0,0,0.5),0 0 35px rgba(255,140,0,0.2); }
+    #tableCenter.tc-discarded     { background:rgba(12,110,45,0.68); border-color:rgba(60,220,110,0.65); box-shadow:inset 0 0 50px rgba(10,130,50,0.45),0 8px 30px rgba(0,0,0,0.5),0 0 35px rgba(40,200,90,0.25); }
+    /* ── Piles overlay (persists during draw phase, dismisses after discard) ── */
+    #pilesOverlay { position:absolute; inset:0; border-radius:inherit; display:flex; align-items:center; justify-content:center; pointer-events:none; opacity:0; transition:opacity 0.3s ease; z-index:5; background:rgba(8,30,15,0.88); overflow:hidden; }
+    #pilesOverlay.visible { opacity:1; }
+    #pilesOverlay.tc-draw-deck     { background:rgba(8,20,70,0.91); }
+    #pilesOverlay.tc-draw-discard  { background:rgba(70,38,4,0.91); }
+    #pilesOverlay.tc-discarded     { background:rgba(6,58,24,0.91); }
+    .po-inner { display:flex; flex-direction:row; align-items:center; width:100%; height:100%; gap:0; }
+    .po-left  { flex:1; display:flex; align-items:center; justify-content:center; padding:12px 8px 12px 22px; }
+    .po-right { flex:1; display:flex; align-items:center; justify-content:center; padding:12px 22px 12px 8px; }
+    .po-header { font-size:1.15rem; font-weight:900; color:#fff; text-shadow:0 2px 12px rgba(0,0,0,0.95); letter-spacing:1px; text-transform:uppercase; text-align:center; line-height:1.35; }
+    .po-card-wrap { display:flex; justify-content:center; }
+    .po-card-wrap .card { zoom:1.4; box-shadow:0 6px 22px rgba(0,0,0,0.7); }
+    /* ── Knock indicator (persistent label shown during last turns) ── */
+    #knockIndicator { overflow:hidden; max-height:0; text-align:center; font-size:0.78rem; font-weight:bold; letter-spacing:1.5px; color:#ff9050; transition:max-height 0.4s ease,padding-top 0.4s ease; padding-top:0; }
+    #knockIndicator.visible { max-height:28px; padding-top:9px; animation:knockIndPulse 2s ease-in-out infinite; }
+    @keyframes knockIndPulse { 0%,100%{opacity:0.65} 50%{opacity:1} }
+    /* ── Piles ── */
+    .piles-area { display:flex; justify-content:center; align-items:flex-start; gap:26px; }
+    .pile-slot { text-align:center; }
+    .pile-label { font-size:0.75rem; opacity:0.65; margin-top:4px; }
+    .draw-pile { width:66px; height:96px; background:repeating-linear-gradient(135deg,#1a3c8c,#1a3c8c 5px,#2756c7 5px,#2756c7 10px); border:2px solid #fff; border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:0.75rem; color:white; cursor:pointer; font-weight:bold; user-select:none; transition:transform 0.15s,box-shadow 0.15s,border-color 0.3s; }
+    .draw-pile:hover { transform:translateY(-4px); box-shadow:0 6px 16px rgba(0,0,0,0.4); }
+    .draw-pile.disabled { opacity:0.38; cursor:not-allowed; pointer-events:none; }
+    @keyframes pilePulse { 0%,100%{box-shadow:0 0 0 0 rgba(46,204,113,0.55);border-color:#2ecc71} 55%{box-shadow:0 0 0 10px rgba(46,204,113,0);border-color:#2ecc71} }
+    .draw-pile.pulsing { animation:pilePulse 1.5s ease-in-out infinite; }
+    @keyframes discardPulse { 0%,100%{box-shadow:0 0 0 0 rgba(230,126,34,0.55);border-color:#e67e22} 55%{box-shadow:0 0 0 10px rgba(230,126,34,0);border-color:#e67e22} }
+    .card.discard-pick.pulsing { animation:discardPulse 1.5s ease-in-out infinite; }
+    .empty-discard { width:66px; height:96px; border:2px dashed rgba(255,255,255,0.28); border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:0.72rem; opacity:0.45; }
+    /* ── Human zone ── */
+    .zone { background:rgba(0,0,0,0.22); border-radius:12px; padding:10px 14px; border:2px solid transparent; transition:border-color 0.35s,box-shadow 0.35s; width:100%; max-width:480px; }
+    .zone-header { display:flex; align-items:center; gap:7px; margin-bottom:7px; }
+    .zone-header h3 { font-size:0.78rem; text-transform:uppercase; letter-spacing:1px; opacity:0.65; transition:opacity 0.3s,color 0.3s; }
+    .zone.active-you { border-color:rgba(46,204,113,0.65); box-shadow:0 0 18px rgba(46,204,113,0.18); }
+    .zone.active-you .zone-header h3 { opacity:1; color:#5fffab; }
+    .zone.zone-loser { border-color:#e74c3c!important; box-shadow:0 0 26px rgba(231,76,60,0.5)!important; }
+    .cards-row { display:flex; flex-wrap:wrap; gap:8px; justify-content:center; min-height:100px; align-items:center; }
+    .score-badge { display:inline-block; background:rgba(255,255,255,0.15); border-radius:6px; padding:3px 10px; font-size:0.88rem; font-weight:bold; margin-bottom:7px; }
+    .hand-score-wrap { display:flex; align-items:center; width:100%; }
+    .hand-score-wrap .cards-row { flex:1; }
+    .big-score { font-family:'Rubik',Arial,sans-serif; font-size:5rem; font-weight:900; color:rgba(255,255,255,0.88); flex-shrink:0; width:80px; text-align:center; line-height:1; text-shadow:0 2px 10px rgba(0,0,0,0.5); }
+    .score-spacer { flex-shrink:0; width:80px; }
+    /* ── Cards ── */
+    .card { width:66px; height:96px; background:white; border:2px solid #ccc; border-radius:10px; display:flex; flex-direction:column; justify-content:space-between; padding:4px 5px; cursor:pointer; font-weight:bold; color:#222; position:relative; transition:transform 0.15s,box-shadow 0.15s,border-color 0.15s; user-select:none; flex-shrink:0; }
+    .card:hover { transform:translateY(-4px); box-shadow:0 6px 16px rgba(0,0,0,0.4); }
+    .card.red { color:#c0392b; }
+    .card.discard-pick { border-color:#e67e22; box-shadow:0 0 0 3px rgba(230,126,34,0.4); }
+    .card.discard-candidate { border-color:#3498db; box-shadow:0 0 0 3px rgba(52,152,219,0.35); }
+    .card.face-down { background:repeating-linear-gradient(45deg,#1a3c8c,#1a3c8c 5px,#2756c7 5px,#2756c7 10px); border-color:#fff; cursor:default; padding:0; }
+    .card.face-down:hover,.card.no-hover:hover { transform:none; box-shadow:none; cursor:default; }
+    .card.sm { width:48px; height:68px; padding:3px 4px; }
+    .card-corner { display:flex; flex-direction:column; align-items:flex-start; line-height:1.15; }
+    .card-corner.br { transform:rotate(180deg); align-self:flex-end; }
+    .corner-rank { font-family:'Rubik',Arial,sans-serif; font-size:1.7rem; font-weight:700; line-height:1.1; }
+    .corner-suit { display:none; }
+    .card.sm .corner-rank { font-size:1.3rem; }
+    .card-center-pip { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); font-size:2.6rem; line-height:1; pointer-events:none; }
+    .card.sm .card-center-pip { font-size:1.65rem; }
+    .action-card-big .card-corner { padding:2px; }
+    .action-card-big .corner-rank { font-size:2.2rem; }
+    .action-card-big .card-center-pip { font-size:3.8rem; }
+    .source-badge { position:absolute; top:-11px; left:50%; transform:translateX(-50%); font-size:0.55rem; font-weight:bold; padding:2px 5px; border-radius:4px; white-space:nowrap; pointer-events:none; animation:badgePop 0.25s ease-out; }
+    .source-badge.from-discard { background:#e67e22; color:#fff; } .source-badge.from-deck { background:#27ae60; color:#fff; }
+    @keyframes cardSlideIn { from{transform:translateY(-18px) scale(0.88);opacity:0} to{transform:translateY(0) scale(1);opacity:1} }
+    .card.new-card { animation:cardSlideIn 0.28s ease-out; }
+    @keyframes cardDeal { from{transform:translateY(-100px) rotate(-20deg) scale(0.5);opacity:0} to{transform:translateY(0) rotate(0deg) scale(1);opacity:1} }
+    .card.deal-anim { animation:cardDeal 0.40s cubic-bezier(0.2,0.8,0.3,1.0) both; }
+    @keyframes badgePop { from{transform:translateX(-50%) scale(0.5);opacity:0} to{transform:translateX(-50%) scale(1);opacity:1} }
+    @keyframes cardReveal { 0%{transform:scale(1.22) translateY(-14px);opacity:0;filter:brightness(1.6)} 55%{transform:scale(1.04) translateY(-1px);opacity:1;filter:brightness(1.1)} 100%{transform:scale(1) translateY(0);opacity:1;filter:brightness(1)} }
+    .card.reveal-card { animation:cardReveal 0.44s ease-out; }
+    @keyframes revealScorePop { 0%{transform:scale(0);opacity:0} 65%{transform:scale(1.2);opacity:1} 100%{transform:scale(1);opacity:1} }
+    .score-badge.reveal-score { animation:revealScorePop 0.38s ease-out; }
+    .big-score.reveal-score { animation:revealScorePop 0.38s ease-out; }
+    /* ── AI score overlay pop ── */
+    .ai-score-pop { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%) scale(0); z-index:20; font-family:'Rubik',Arial,sans-serif; font-size:3.8rem; font-weight:900; color:#fff; text-shadow:0 0 18px rgba(0,0,0,0.9),0 2px 6px rgba(0,0,0,0.8); pointer-events:none; white-space:nowrap; opacity:0; }
+    @keyframes aiScorePop { 0%{transform:translate(-50%,-50%) scale(0);opacity:0} 50%{transform:translate(-50%,-50%) scale(1.18);opacity:1} 75%{transform:translate(-50%,-50%) scale(0.96);opacity:1} 100%{transform:translate(-50%,-50%) scale(1);opacity:1} }
+    .ai-score-pop.popping { animation:aiScorePop 0.45s ease-out forwards; }
+    /* ══ FIXED CONTROL DOCK ══ */
+    #controlDock { display:flex; flex-direction:column; position:fixed; bottom:0; left:0; right:0; z-index:50; background:rgba(5,24,12,0.97); border-top:3px solid rgba(101,67,33,0.55); box-shadow:0 -6px 24px rgba(0,0,0,0.6); padding:8px 14px 10px; }
+    #controlDock[hidden] { display:none !important; }
+    #turnBanner { text-align:center; border-radius:6px; padding:5px 16px; margin-bottom:6px; font-size:0.95rem; font-weight:bold; letter-spacing:0.3px; border:2px solid transparent; transition:background 0.35s,border-color 0.35s,color 0.35s; }
+    #turnBanner.your-turn   { background:rgba(46,204,113,0.18); border-color:rgba(46,204,113,0.65); color:#5fffab; }
+    #turnBanner.others-turn { background:rgba(52,152,219,0.15); border-color:rgba(52,152,219,0.35); color:#90d4f5; }
+    #turnBanner.hidden { display:none; }
+    #gameStatus { text-align:center; font-size:0.85rem; min-height:36px; line-height:1.45; margin-bottom:7px; opacity:0.88; }
+    .dock-actions { display:flex; flex-wrap:wrap; justify-content:center; align-items:center; gap:8px; margin-bottom:7px; }
+    button { padding:9px 18px; font-size:0.9rem; font-weight:bold; border:none; border-radius:8px; cursor:pointer; transition:background 0.2s,transform 0.1s; }
+    button:active { transform:scale(0.97); } button:disabled { opacity:0.38; cursor:not-allowed; pointer-events:none; }
+    #knockBtn { background:#e74c3c; color:white; } #knockBtn:hover { background:#c0392b; }
+    #knockBtn.knock-queued { background:#b8860b; color:#fff; border:2px solid #ffd700; }
+    #knockBtn.knock-queued:hover { background:#8b6508; }
+    #newMatchBtn { background:#555; color:white; } #newMatchBtn:hover { background:#444; }
+    #readyBtn { background:#27ae60; color:white; box-shadow:0 2px 12px rgba(39,174,96,0.45); display:none; animation:readyPulse 2s ease-in-out infinite; }
+    #readyBtn:hover { background:#1e8449; }
+    @keyframes readyPulse { 0%,100%{box-shadow:0 2px 12px rgba(39,174,96,0.45)} 50%{box-shadow:0 2px 22px rgba(39,174,96,0.75)} }
+    .speed-inline { font-size:0.8rem; opacity:0.75; display:flex; align-items:center; gap:5px; }
+    .speed-inline select { background:rgba(255,255,255,0.12); color:white; border:1px solid rgba(255,255,255,0.25); border-radius:5px; padding:4px 6px; font-size:0.8rem; cursor:pointer; }
+    .speed-inline select option { background:#1a4a2e; }
+    /* ── Card Tracking (dock) ── */
+    .tracking-panel { background:rgba(255,255,255,0.04); border-radius:8px; padding:7px 12px; margin-bottom:7px; }
+    .tracking-title { font-size:0.64rem; text-transform:uppercase; letter-spacing:1px; opacity:0.45; margin-bottom:6px; }
+    .tracking-rows-wrap { display:flex; flex-direction:column; gap:5px; }
+    .tracking-row { display:flex; align-items:center; gap:4px; }
+    .tracking-name { font-size:0.78rem; opacity:0.75; width:78px; flex-shrink:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .suit-track-btn { border:none; background:transparent; font-size:2.4rem; line-height:1; cursor:pointer; padding:1px 2px; display:inline-block; transform:scaleX(1.25); transition:color 0.2s,filter 0.2s; user-select:none; flex:1; text-align:center; }
+    /* Unfilled at rest — visible but clearly inactive */
+    .suit-btn-red   { color:rgba(210,80,70,0.28); }
+    .suit-btn-black { color:rgba(160,190,255,0.25); }
+    .suit-track-btn:active { transform:scaleX(1.25) scale(0.85); }
+    .suit-track-btn:hover { filter:brightness(1.6); }
+    /* Row 1: left player's suit — 3-click: off → red → green → off */
+    .suit-track-btn.active-red   { color:#e74c3c; filter:drop-shadow(0 0 7px rgba(231,76,60,0.85)); }
+    .suit-track-btn.active-green { color:#2ecc71; filter:drop-shadow(0 0 7px rgba(46,204,113,0.85)); }
+    /* Row 2: suits drawn — 4-click: off → yellow → orange → red → off */
+    .suit-track-btn.active-yellow { color:#f1c40f; filter:drop-shadow(0 0 7px rgba(241,196,15,0.85)); }
+    .suit-track-btn.active-orange { color:#e67e22; filter:drop-shadow(0 0 7px rgba(230,126,34,0.85)); }
+    /* ── Reactions (dock) ── */
+    .reaction-bar { display:flex; flex-wrap:wrap; justify-content:center; gap:6px; margin-bottom:7px; }
+    .react-btn { background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.2); color:white; border-radius:20px; padding:4px 11px; font-size:1.05rem; cursor:pointer; transition:background 0.15s,transform 0.1s; line-height:1; }
+    .react-btn:hover { background:rgba(255,255,255,0.22); } .react-btn:active { transform:scale(0.9); }
+    .react-btn.txt { font-size:0.72rem; font-weight:bold; letter-spacing:0.5px; }
+    .react-btn.boo { font-size:0.75rem; font-weight:bold; letter-spacing:1px; color:#ff6b6b; border-color:rgba(255,107,107,0.4); background:rgba(255,107,107,0.1); }
+    .react-btn.boo:hover { background:rgba(255,107,107,0.22); }
+    .reaction-float { position:fixed; font-size:2.2rem; pointer-events:none; z-index:200; animation:emojiFloat 1.5s ease-out forwards; bottom:var(--dock-h,320px); user-select:none; }
+    .reaction-float.is-boo { font-size:1.3rem; font-weight:900; color:#ff6b6b; text-shadow:0 0 8px rgba(255,107,107,0.8); }
+    @keyframes emojiFloat { 0%{transform:translateY(0) translateX(0) scale(1);opacity:1} 20%{opacity:1} 100%{transform:translateY(-200px) translateX(var(--drift)) scale(1.4);opacity:0} }
+    /* ── Chat (dock) ── */
+    .chat-mini h4 { font-size:0.68rem; text-transform:uppercase; letter-spacing:1px; opacity:0.45; margin-bottom:4px; }
+    #chatLog { background:rgba(0,0,0,0.3); border-radius:7px; padding:7px 10px; height:70px; overflow-y:auto; font-size:0.82rem; line-height:1.55; }
+    .chat-msg { color:#7ec8e3; margin-bottom:1px; } .chat-msg.system { color:#aaa; font-style:italic; }
+    /* ── Knock splash ── */
+    #knockSplash { position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; z-index:90; pointer-events:none; }
+    #knockSplash.hidden { display:none; }
+    .knock-word { font-size:4.5rem; font-weight:900; letter-spacing:4px; color:white; text-shadow:0 0 40px rgba(231,76,60,0.9),0 4px 12px rgba(0,0,0,0.6); animation:knockBang 1.6s ease-out forwards; }
+    .knock-sub  { font-size:1.1rem; font-weight:bold; color:rgba(255,255,255,0.85); margin-top:8px; animation:knockBang 1.6s ease-out forwards; }
+    @keyframes knockBang { 0%{transform:scale(0.2) rotate(-6deg);opacity:0} 20%{transform:scale(1.25) rotate(2deg);opacity:1} 45%{transform:scale(0.95) rotate(-1deg);opacity:1} 65%{transform:scale(1.05) rotate(0);opacity:1} 100%{transform:scale(1) rotate(0);opacity:0} }
+    #knockSplash.gold     .knock-word { color:#ffd700; text-shadow:0 0 50px rgba(255,215,0,0.95),0 4px 14px rgba(0,0,0,0.7); }
+    #knockSplash.gold     .knock-sub  { color:rgba(255,230,100,0.9); }
+    #knockSplash.showdown .knock-word { color:#ffe066; text-shadow:0 0 50px rgba(255,224,102,0.85),0 4px 14px rgba(0,0,0,0.7); }
+    #knockSplash.showdown .knock-sub  { color:rgba(255,230,120,0.9); }
+    #knockSplash.green    .knock-word { color:#2ecc71; text-shadow:0 0 50px rgba(46,204,113,0.95),0 4px 14px rgba(0,0,0,0.7); }
+    #knockSplash.green    .knock-sub  { color:rgba(180,255,210,0.9); }
+    /* ── Action splash (retired — replaced by table center pulse) ── */
+    #actionSplash { display:none !important; }
+    .action-label { font-size:1.55rem; font-weight:800; letter-spacing:0.5px; color:white; text-shadow:0 2px 10px rgba(0,0,0,0.8); margin-bottom:18px; animation:actionSlideIn 0.22s ease-out; }
+    .action-card-big { width:104px; height:146px; background:white; border:3px solid #ccc; border-radius:14px; display:flex; flex-direction:column; justify-content:space-between; padding:8px 9px; font-weight:bold; color:#222; animation:actionCardPop 0.3s cubic-bezier(0.175,0.885,0.32,1.275); box-shadow:0 8px 32px rgba(0,0,0,0.55); position:relative; }
+    .action-card-big.red { color:#c0392b; }
+    .action-card-big.face-down { background:repeating-linear-gradient(45deg,#1a3c8c,#1a3c8c 7px,#2756c7 7px,#2756c7 14px); border-color:white; font-size:2.5rem; color:white; }
+    .action-subtitle { font-size:0.88rem; color:rgba(255,255,255,0.72); margin-top:14px; font-style:italic; animation:actionSlideIn 0.28s ease-out 0.1s both; }
+    @keyframes actionSlideIn { from{transform:translateY(-14px);opacity:0} to{transform:translateY(0);opacity:1} }
+    @keyframes actionCardPop { from{transform:scale(0.55) translateY(28px);opacity:0} to{transform:scale(1) translateY(0);opacity:1} }
+    /* ── Round result ── */
+    /* result state — reuses pilesOverlay, full-width centered, tappable */
+    #pilesOverlay.result { pointer-events:auto; cursor:pointer; }
+    #pilesOverlay.result .po-inner { justify-content:center; }
+    #pilesOverlay.result .po-right { display:none; }
+    #pilesOverlay.result .po-header { font-size:2rem; line-height:1.3; white-space:pre-line; }
+    .po-sub { font-size:0.82rem; opacity:0.55; text-align:center; margin-top:10px; line-height:1.6; font-family:monospace; }
+    .po-tap { display:block; font-size:0.65rem; opacity:0.35; text-transform:uppercase; letter-spacing:2px; margin-top:14px; }
+    /* ── Narrow phones: bottom-dock tweaks ── */
+    @media(max-width:480px){
+      .card,.draw-pile,.empty-discard{width:56px;height:82px} .card.sm{width:40px;height:58px}
+      #tableCenter{padding:14px 18px;border-radius:60px}
+    }
+    /* ── Height compaction for bottom-dock mode only ── */
+    @media(max-width:699px) and (max-height:820px){
+      h1{font-size:1.5rem;margin-bottom:6px}
+      #controlDock{padding:5px 14px 7px}
+      #turnBanner{padding:3px 14px;margin-bottom:4px;font-size:0.88rem}
+      #gameStatus{min-height:22px;margin-bottom:4px;font-size:0.81rem}
+      .dock-actions{margin-bottom:4px;gap:6px}
+      .reaction-bar{margin-bottom:4px}
+      .tracking-panel{padding:5px 10px;margin-bottom:4px}
+      #chatLog{height:50px}
+    }
+    @media(max-width:699px) and (max-height:720px){
+      h1{font-size:1.3rem;margin-bottom:4px}
+      .card,.draw-pile,.empty-discard{width:56px;height:82px}
+      .card-center-pip{font-size:1.25rem}
+      #tableCenter{padding:12px 20px;border-radius:70px}
+      #tableArea{gap:5px}
+      #chatLog{height:38px;font-size:0.76rem}
+      .react-btn{padding:3px 8px;font-size:0.9rem}
+      .reaction-bar{gap:4px;margin-bottom:3px}
+    }
+    @media(max-width:699px) and (max-height:600px){
+      h1{font-size:1.1rem;margin-bottom:2px}
+      .card,.draw-pile,.empty-discard{width:48px;height:70px}
+      .card-center-pip{font-size:1.05rem}
+      .cards-row{min-height:76px}
+      #tableCenter{padding:8px 14px}
+      #tableArea{gap:3px}
+      button{padding:6px 12px;font-size:0.82rem}
+      .chat-mini{display:none}
+      .reaction-bar{display:none}
+    }
+    /* ══ SIDE PANEL (≥700px wide) ══ */
+    @media(min-width:700px){
+      #controlDock {
+        top:0; right:0; bottom:0; left:auto;
+        width:320px;
+        border-top:none;
+        border-left:3px solid rgba(101,67,33,0.55);
+        box-shadow:-6px 0 24px rgba(0,0,0,0.6);
+        padding:16px 14px 16px;
+        overflow-y:auto; overflow-x:hidden;
+        gap:0;
+      }
+      #turnBanner { margin-bottom:10px; font-size:0.9rem; }
+      #gameStatus { margin-bottom:10px; min-height:auto; font-size:0.84rem; }
+      .dock-actions { flex-direction:column; align-items:stretch; margin-bottom:10px; gap:7px; }
+      .dock-actions button { width:100%; }
+      .speed-inline { width:100%; justify-content:center; }
+      .tracking-panel { margin-bottom:10px; }
+      .reaction-bar { margin-bottom:10px; flex-wrap:wrap; justify-content:center; }
+      .chat-mini { margin-top:auto; }
+      #chatLog { height:130px; }
+      .reaction-float { left:auto !important; right:334px; bottom:40px; }
+      /* Larger human hand cards in side panel mode */
+      #myHand .card { zoom:1.5; }
+      #myHand { min-height:152px; gap:12px; }
+      .zone { max-width:600px; }
+    }
+  </style>
+</head>
+<body>
+
+<div id="setupScreen">
+  <h1>🃏 Thirty-One</h1>
+  <div class="setup-box">
+    <h2>How many players?</h2>
+    <div class="count-row">
+      <button class="count-btn active" onclick="selectCount(2)">2</button>
+      <button class="count-btn"        onclick="selectCount(3)">3</button>
+      <button class="count-btn"        onclick="selectCount(4)">4</button>
+    </div>
+    <div id="playerPreview"></div>
+    <div class="house-rules">
+      <h3>House Rules</h3>
+      <div class="rule-row">
+        <input type="checkbox" id="ruleKnockLow" checked>
+        <label class="rule-label" for="ruleKnockLow">
+          <strong>5-or-Under on the Deal</strong>
+          If someone knocks off the deal and any opponent scores 5 or less, that opponent wins instead.
+        </label>
+      </div>
+      <div class="rule-row">
+        <input type="checkbox" id="ruleTripleAces" checked>
+        <label class="rule-label" for="ruleTripleAces">
+          <strong>Triple Aces</strong>
+          Three aces in hand ends the round immediately — only the lowest-scoring opponent loses a chip.
+        </label>
+      </div>
+      <div class="rule-row">
+        <input type="checkbox" id="ruleFreeRide" checked>
+        <label class="rule-label" for="ruleFreeRide">
+          <strong>Free Ride 🌟</strong>
+          Players start with 3 chips plus a golden Free Ride — 4 chips total. The Free Ride is your last lifeline before elimination.
+        </label>
+      </div>
+    </div>
+    <button class="start-btn" onclick="startMatch()">Deal Cards ▶</button>
+    <details class="htp-details">
+      <summary>How to Play</summary>
+      <div class="htp-body" id="htpSetupBody"></div>
+    </details>
+  </div>
+</div>
+
+<div id="gameScreen">
+  <h1>🃏 Thirty-One</h1>
+  <div id="tableArea">
+    <div id="opponentsRow"></div>
+    <div id="tableCenter">
+      <div id="knockIndicator"></div>
+      <div id="pilesOverlay" onclick="if(this.classList.contains('result'))closeRoundResult()">
+        <div class="po-inner">
+          <div class="po-left">
+            <div class="po-header" id="poHeader"></div>
+            <div class="po-sub" id="poSub"></div>
+          </div>
+          <div class="po-right"><div class="po-card-wrap" id="poCardWrap"></div></div>
+        </div>
+      </div>
+      <div class="piles-area">
+        <div class="pile-slot">
+          <div class="draw-pile disabled" id="drawPile" onclick="playerDrawFromDeck()">🂠 Draw</div>
+          <div class="pile-label" id="deckCount"></div>
+        </div>
+        <div class="pile-slot">
+          <div id="discardSlot"></div>
+          <div class="pile-label">Discard</div>
+        </div>
+      </div>
+    </div>
+    <div class="zone" id="myZone">
+      <div class="zone-header">
+        <span class="player-avatar">🫵</span>
+        <h3 id="myZoneLabel">Your Hand</h3>
+        <div class="life-dots" id="myLives"></div>
+      </div>
+      <div class="hand-score-wrap">
+        <div class="big-score" id="myScore">—</div>
+        <div class="cards-row" id="myHand"></div>
+        <div class="score-spacer"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="controlDock" hidden>
+  <div id="turnBanner" class="hidden"></div>
+  <div id="gameStatus">Loading...</div>
+  <div class="dock-actions">
+    <button id="readyBtn"    onclick="startNewRound()">🃏 Deal — Ready!</button>
+    <button id="knockBtn"    onclick="knock()" disabled>Knock 🤛</button>
+    <button id="newMatchBtn" onclick="showSetup()">New Match ▶</button>
+    <span class="speed-inline">AI: <select id="aiSpeedSelect" onchange="setAiSpeed(this.value)">
+      <option value="500">Fast</option><option value="1000" selected>Normal</option>
+      <option value="1600">Slow</option><option value="2400">Very Slow</option>
+    </select></span>
+  </div>
+  <div class="tracking-panel" id="trackingPanel" style="display:none">
+    <div class="tracking-title">📋 Table Notes</div>
+    <div class="tracking-rows-wrap" id="trackingRows"></div>
+  </div>
+  <div class="reaction-bar">
+    <button class="react-btn txt" onclick="fireReaction('🔥 HOT DECK!!')">HOT DECK!!</button>
+    <button class="react-btn txt" onclick="SFX.chicken();fireReaction('BAWK BAWK BAWK 🐔')">BAWK BAWK BAWK</button>
+    <button class="react-btn txt" onclick="fireReaction('GARBAGE PICKER! 🗑️')">GARBAGE PICKER!</button>
+    <button class="react-btn txt" onclick="fireReaction('meow 🐱')">meow</button>
+    <button class="react-btn txt" onclick="fireReaction('🦂🗑️')">🦂🗑️</button>
+    <button class="react-btn txt" onclick="fireReaction('Yoinks! 😜')">Yoinks!</button>
+    <button class="react-btn txt" onclick="fireReaction('Wooty-woooot 🎉')">Wooty-woooot</button>
+    <button class="react-btn boo" onclick="fireReaction('BOOOO')">BOOOO</button>
+  </div>
+  <div class="chat-mini">
+    <h4>💬 Table Talk</h4>
+    <div id="chatLog"></div>
+  </div>
+  <button class="htp-btn" onclick="openHtp()">? How to Play</button>
+</div>
+
+<canvas id="confettiCanvas"></canvas>
+
+<div id="htpModal" onclick="if(event.target===this)closeHtp()">
+  <div class="htp-modal-box">
+    <button class="htp-close" onclick="closeHtp()">✕</button>
+    <h2>🃏 How to Play</h2>
+    <div class="htp-body" id="htpModalBody"></div>
+  </div>
+</div>
+
+<div id="knockSplash" class="hidden">
+  <div class="knock-word" id="knockWord"></div>
+  <div class="knock-sub"  id="knockSub"></div>
+</div>
+<div id="actionSplash" class="hidden">
+  <div class="action-label" id="actionLabel"></div>
+  <div id="actionCardWrap"></div>
+  <div class="action-subtitle" id="actionSubtitle"></div>
+</div>
+
+<script>
+const PLAYER_NAMES   = ['You','Alex','Sam','Jordan'];
+const PLAYER_AVATARS = ['🫵','😏','🤔','😤'];
+
+const PERSONALITIES = {
+  1:{drawDiscard:["Mine now.","I'll take that.","That's exactly what I needed.","Don't mind if I do."],drawDeck:["Let's see what fate brings.","Rolling the dice.","I'll take my chances.","Interesting..."],knock:["I like these odds. Knock.","That's enough. Knock!","Going for it. Knock.","Solid. Knock."],knockWin:["Too easy.","As expected.","That's how it's done.","Pay up."],knockLose:["How?!","Unbelievable.","That can't be right.","Impossible."],thirtyOne:["31. Count 'em and weep.","That's 31. Pay up.","Game over."],reactKnock:["Bold move.","You sure about that?","Brave.","I'm not worried."],chase31:["I smell 31...","Not yet. I'm going for it.","Patience. There's more here."]},
+  2:{drawDiscard:["Ooh, that works for me!","Hmm, I'll take that.","That's useful.","Perfect."],drawDeck:["Let's be careful here.","One card at a time.","Patience...","Hmm, let's see."],knock:["I think that's enough. Knock.","Going for it! Knock.","This feels right. Knock."],knockWin:["Patience pays off!","Told you!","Slow and steady wins!","Ha!"],knockLose:["Oh no. I miscalculated.","Should have waited longer.","Too risky. Too soon.","Oops."],thirtyOne:["31! I can't believe it!","Yes! Yes! Yes!","Patience pays off big!"],reactKnock:["Interesting move.","You sure?","Let's see that hand.","Hmm."],chase31:[]},
+  3:{drawDiscard:["YESSS! That's exactly what I needed!","Ha! Thank you!","This changes everything!!"],drawDeck:["Let's GO!","Living dangerously!","Hit me! ...oh nice!","You only live once!"],knock:["Why not?! KNOCK!","Chaos theory — KNOCK!","Rolling with this! KNOCK!!"],knockWin:["Let's GOOO!!!","HA! Called it!","Jordan ALWAYS delivers!","CHAOS WINS!"],knockLose:["LOL. Okay that was risky.","Worth it. Kind of.","I REGRET NOTHING.","Hahahaha... ow."],thirtyOne:["THIRTY ONE BABY!!!","CHAOS WINS AGAIN!","Wild card for the WIN!!!"],reactKnock:["WAIT WHAT?!","You crazy?!","Oh this is gonna be good.","Oh no you didn't!"],chase31:["NOT YET. I see 31 from here.","Why knock when 31 is RIGHT THERE?!","Hold on... I'm going for glory.","31 or bust!!"]}
+};
+function personalityLine(idx,type){const p=PERSONALITIES[idx];return p&&p[type]?pick(p[type]):'';}
+
+const SFX=(()=>{
+  let ctx=null;
+  function getCtx(){if(!ctx)ctx=new(window.AudioContext||window.webkitAudioContext)();return ctx;}
+  function noise(dur,vol,freq=2000){const c=getCtx();const buf=c.createBuffer(1,Math.ceil(c.sampleRate*dur),c.sampleRate);const d=buf.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;const src=c.createBufferSource();src.buffer=buf;const g=c.createGain();g.gain.setValueAtTime(vol,c.currentTime);g.gain.exponentialRampToValueAtTime(0.001,c.currentTime+dur);const f=c.createBiquadFilter();f.type='bandpass';f.frequency.value=freq;f.Q.value=1.5;src.connect(f);f.connect(g);g.connect(c.destination);src.start();src.stop(c.currentTime+dur);}
+  function tone(freq,dur,vol,type='sine',delay=0){const c=getCtx();const osc=c.createOscillator();const g=c.createGain();osc.frequency.value=freq;osc.type=type;g.gain.setValueAtTime(0.001,c.currentTime+delay);g.gain.linearRampToValueAtTime(vol,c.currentTime+delay+0.03);g.gain.exponentialRampToValueAtTime(0.001,c.currentTime+delay+dur);osc.connect(g);g.connect(c.destination);osc.start(c.currentTime+delay);osc.stop(c.currentTime+delay+dur+0.05);}
+  function thud(freq,vol,delay=0){const c=getCtx();const osc=c.createOscillator();const g=c.createGain();osc.frequency.setValueAtTime(freq,c.currentTime+delay);osc.frequency.exponentialRampToValueAtTime(20,c.currentTime+delay+0.35);g.gain.setValueAtTime(vol,c.currentTime+delay);g.gain.exponentialRampToValueAtTime(0.001,c.currentTime+delay+0.4);osc.connect(g);g.connect(c.destination);osc.start(c.currentTime+delay);osc.stop(c.currentTime+delay+0.45);}
+  return{
+    card:    ()=>{try{noise(0.055,0.22,2200);}catch(e){}},
+    deal:    ()=>{try{noise(0.04,0.14,1800);}catch(e){}},
+    discard: ()=>{try{noise(0.07,0.20,1400);}catch(e){}},
+    knock:   ()=>{try{thud(95,0.85);thud(55,0.45,0.13);}catch(e){}},
+    win31:   ()=>{try{[523,659,784,1047].forEach((f,i)=>tone(f,0.55,0.4,'sine',i*0.13));}catch(e){}},
+    win:     ()=>{try{[523,659,784].forEach((f,i)=>tone(f,0.5,0.35,'sine',i*0.15));}catch(e){}},
+    lose:    ()=>{try{[392,330,262].forEach((f,i)=>tone(f,0.5,0.32,'sine',i*0.15));}catch(e){}},
+    showdown:()=>{try{tone(220,0.9,0.28,'sawtooth');}catch(e){}},
+    chicken: ()=>{try{
+      const c=getCtx();
+      for(let i=0;i<3;i++){
+        const delay=i*0.27;
+        const osc=c.createOscillator();const g=c.createGain();
+        osc.type='sawtooth';
+        osc.frequency.setValueAtTime(780,c.currentTime+delay);
+        osc.frequency.exponentialRampToValueAtTime(420,c.currentTime+delay+0.14);
+        g.gain.setValueAtTime(0.28,c.currentTime+delay);
+        g.gain.exponentialRampToValueAtTime(0.001,c.currentTime+delay+0.2);
+        osc.connect(g);g.connect(c.destination);
+        osc.start(c.currentTime+delay);osc.stop(c.currentTime+delay+0.22);
+      }
+    }catch(e){}},
+  };
+})();
+
+let deck=[],discardPile=[],players=[],numPlayers=2;
+let dealerIdx=0,activeIdx=0,firstActorIdx=0,knockedByIdx=null,lastTurnQueue=[];
+let mustDrawIdx=-1;
+let isFirstAction=false,turnPhase='draw',gameActive=false;
+let lastDrawSource=null,lastDrawnIdx=-1,aiActionMs=1000;
+let suitTrackingNext={'♠':0,'♥':0,'♦':0,'♣':0}; // row 1: left player suit interest (0=off,1=red,2=green)
+let suitDrawn={'♠':0,'♥':0,'♦':0,'♣':0};        // row 2: suits drawn heat (0=off,1=yellow,2=orange,3=red)
+// Tracks the suit each player appears to be collecting (updated on any discard-pile pickup)
+let inferredSuits={};
+// House rules
+let houseRuleKnockLow=true,houseRuleTripleAces=true,houseRuleFreeRide=true;
+// Max starting chips (3 normally, 4 with Free Ride)
+function maxLives(){ return houseRuleFreeRide ? 4 : 3; }
+// Round-state flags
+let wasKnockedOffDeal=false,tripleAcesIdx=null,knockQueued=false;
+// Round counter (resets each match, used for early-game AI logic)
+let roundCount=0;
+
+// ── AI personality properties ──────────────────────────────────────────────
+// aggression: 0=very conservative … 1=very aggressive
+// knockAt22: whether they'll knock early with a modest hand
+const AI_PROPS={
+  1:{aggression:0.50,name:'Alex'},   // solid, measured
+  2:{aggression:0.25,name:'Sam'},    // patient, waits for high cards
+  3:{aggression:0.85,name:'Jordan'}, // chaotic, takes risks
+};
+
+function aiProps(idx){return AI_PROPS[idx]||{aggression:0.5};}
+
+// Face value of a single card (for "is this card worth revealing my suit for?")
+function cardFaceValue(card){
+  if(card.rank==='A')return 11;
+  if(['J','Q','K'].includes(card.rank))return 10;
+  return parseInt(card.rank);
+}
+
+// Scale factor based on how many players are still alive.
+// More players = looser play (statistically harder for everyone to be strong).
+// Fewer players = tighter play (each opponent is more dangerous).
+function playerCountModifier(){
+  const n=activePlayers().length;
+  return n>=6?1.35 : n===5?1.2 : n===4?1.05 : n===3?0.8 : 0.65; // 2 players = 0.65
+}
+
+// Effective aggression = base personality × player-count modifier.
+// Not capped at 1.0 — let it run high for chaos with 6 players.
+function effectiveAggression(idx){
+  return aiProps(idx).aggression * playerCountModifier();
+}
+
+// Knock threshold — player-count base + effective aggression.
+// More players lowers the base (you can knock at a weaker hand safely).
+// Fewer players raises it (one opponent with a strong hand beats you).
+function aiKnockThreshold(idx){
+  const eff=effectiveAggression(idx);
+  const n=activePlayers().length;
+  const base=n>=5?25 : n===4?26 : n===3?27 : 28;
+  const scale=roundCount<=4?5:3;
+  return Math.round(base-eff*scale);
+}
+
+// Knock-off-the-deal threshold — lower than mid-game knock.
+// Nobody has drawn yet so a decent hand is relatively stronger.
+// Aggressive players exploit this more; conservative players still wait for something solid.
+function aiKnockOffDealThreshold(idx){
+  const eff=effectiveAggression(idx);
+  return Math.round(aiKnockThreshold(idx)-eff*4);
+  // Jordan 4p early: ~22 - 0.89*4 ≈ 18  (knocks boldly off the deal)
+  // Alex  4p early: ~24 - 0.53*4 ≈ 22
+  // Sam   4p early: ~26 - 0.26*4 ≈ 25  (still cautious)
+}
+
+// Detect if a hand has A + 10-value card of the same suit (21 pts, one card from 31).
+// This is the "chase 31" condition — aggressive players skip the knock and draw instead.
+function isChasing31(hand){
+  const suits=['♠','♥','♦','♣'];
+  return suits.some(s=>{
+    const sc=hand.filter(c=>c.suit===s);
+    return sc.some(c=>c.rank==='A')&&sc.some(c=>['10','J','Q','K'].includes(c.rank));
+  });
+}
+
+// Core decision: should this AI player take the top discard?
+function aiShouldTakeDiscard(idx,topCard,hand,inLast){
+  const current=handScore(hand);
+  const scoreAfter=bestScoreAfterDiscard([...hand,topCard]);
+  const improvement=scoreAfter-current;
+  const fv=cardFaceValue(topCard);
+  const eff=effectiveAggression(idx);
+
+  if(improvement<=0)return false;
+
+  // ── Last turns (someone knocked) — play to survive ──
+  // More surviving players = slightly looser (more competition, need every edge)
+  if(inLast){
+    const floor=Math.round(16-eff*2); // 6 players: floor drops; 2 players: stays high
+    if(current<floor&&fv<6)return false;
+    return improvement>=1;
+  }
+
+  // ── Normal turns ──
+  const early=roundCount<=4;
+
+  // HIGH cards (10, J, Q, K, A) — always worth taking with real gain
+  if(fv>=10)return improvement>=2;
+
+  // MID cards (6–9) — gate on resulting suit score
+  // More players: lower threshold (riskier to be picky)
+  // Fewer players: higher threshold (opponents are more dangerous)
+  if(fv>=6){
+    const needed=early
+      ? Math.round(18-eff*3)   // 6p+Jordan≈13, 2p+Sam≈20
+      : Math.round(16-eff*3);
+    return scoreAfter>=needed;
+  }
+
+  // LOW cards (2–5) — only for knock setup early; stronger result required with fewer players
+  if(early){
+    const knockFloor=Math.round(22-eff*2); // 6p+Jordan≈19, 2p+Sam≈22
+    return scoreAfter>=knockFloor&&eff>=0.35;
+  }
+  // Late game low card: needs a strong suit result
+  return scoreAfter>=17&&improvement>=4;
+}
+
+function setAiSpeed(v){aiActionMs=parseInt(v);}
+
+const HTP_HTML=`
+<p><strong>Goal:</strong> Don't have the lowest hand when the round ends. Your score is the total value of your best single suit — Aces are 11, face cards (J/Q/K) are 10, number cards are face value. The best possible hand is <strong>31</strong>: an Ace plus any two 10-value cards all in the same suit.</p>
+<p><strong>Knocking:</strong> When you feel good about your hand, knock — everyone else gets one final turn, then hands are revealed. Whoever has the lowest score loses a chip. If you knock and don't beat at least one person, you lose the chip instead. You can also <strong>knock off the deal</strong> before drawing — this ends the round immediately with no last turns, so everyone plays their dealt hand as-is.</p>
+<p><strong>Your turn:</strong> Take the top card from the discard pile or draw from the deck, then discard one card. You're always trying to build the highest same-suit total you can to avoid being the low hand.</p>
+<p><strong>31:</strong> If you draw a card that completes a 31 hand, the round ends immediately and everyone else loses a chip.</p>
+<p><strong>Chips</strong> are your lives. Everyone starts with 4 — the gold one is your <strong>Free Ride</strong>, meaning your first elimination you sit out one round instead of losing. Last player with chips wins the match.</p>
+<p><strong>House rules:</strong> <strong>Triple Aces</strong> — three aces ends the round instantly; the lowest opponent loses a chip. <strong>5-or-Under on the Deal</strong> — if someone knocks off the deal and you're sitting on 5 points or less, they lose instead.</p>
+<p><strong>Tips:</strong> Watch what your opponents pick up from the discard pile — it tells you exactly what suit they're chasing. Avoid discarding cards in that suit, or you're handing them the win. Likewise, keep track of what's already been discarded. If you're building toward hearts and three high hearts are already in the pile, your ceiling is a lot lower than you think — it may be time to knock or switch suits.</p>
+`;
+function openHtp(){document.getElementById('htpModal').classList.add('open');}
+function closeHtp(){document.getElementById('htpModal').classList.remove('open');}
+document.addEventListener('DOMContentLoaded',()=>{
+  document.getElementById('htpSetupBody').innerHTML=HTP_HTML;
+  document.getElementById('htpModalBody').innerHTML=HTP_HTML;
+});
+
+function makeSuitBtn(suit, clsIdx, clickFn){
+  const clsList=['','active-red','active-green','active-yellow','active-orange','active-red'];
+  const isRed=suit==='♥'||suit==='♦';
+  const btn=document.createElement('button');
+  btn.className='suit-track-btn '+(isRed?'suit-btn-red':'suit-btn-black');
+  btn.textContent=suit;
+  if(clsIdx>0)btn.classList.add(clsList[clsIdx]);
+  btn.onclick=e=>{e.stopPropagation();clickFn(suit);};
+  return btn;
+}
+
+function renderTrackingPanel(){
+  const panel=document.getElementById('trackingPanel');
+  const rows=document.getElementById('trackingRows');
+  const ai=players.filter(p=>!p.isHuman&&p.lives>0);
+  if(!gameActive||!ai.length){panel.style.display='none';return;}
+  panel.style.display='';rows.innerHTML='';
+
+  // ── Row 1: player to your left — 3-click suit interest (off→red→green→off) ──
+  const nextIdx=nextActive(0);
+  const row1=document.createElement('div');row1.className='tracking-row';
+  const nm=document.createElement('span');nm.className='tracking-name';
+  nm.textContent=nextIdx>=0?PLAYER_AVATARS[nextIdx]+' '+players[nextIdx].name:'—';
+  row1.appendChild(nm);
+  ['♠','♥','♣','♦'].forEach(suit=>{
+    const st=suitTrackingNext[suit]||0; // 0,1,2 → cls 0,1,2
+    row1.appendChild(makeSuitBtn(suit,st,s=>{
+      suitTrackingNext[s]=((suitTrackingNext[s]||0)+1)%3;renderTrackingPanel();
+    }));
+  });
+  rows.appendChild(row1);
+
+  // ── Row 2: suits drawn heat — 4-click (off→yellow→orange→red→off) ──
+  const row2=document.createElement('div');row2.className='tracking-row';
+  const lbl=document.createElement('span');lbl.className='tracking-name';lbl.textContent='Suits Drawn';
+  row2.appendChild(lbl);
+  ['♠','♥','♣','♦'].forEach(suit=>{
+    const st=suitDrawn[suit]||0; // 0,1,2,3 → cls 0,3,4,5
+    const clsIdx=[0,3,4,5][st];
+    row2.appendChild(makeSuitBtn(suit,clsIdx,s=>{
+      suitDrawn[s]=((suitDrawn[s]||0)+1)%4;renderTrackingPanel();
+    }));
+  });
+  rows.appendChild(row2);
+}
+
+function selectCount(n){numPlayers=n;document.querySelectorAll('.count-btn').forEach((b,i)=>b.classList.toggle('active',i+2===n));updateSetupPreview();}
+function updateSetupPreview(){document.getElementById('playerPreview').innerHTML=PLAYER_NAMES.slice(0,numPlayers).map((name,i)=>`<span class="preview-name ${i===0?'human':''}">${PLAYER_AVATARS[i]} ${name}</span>`).join(' ');}
+
+function startMatch(){
+  houseRuleKnockLow=document.getElementById('ruleKnockLow').checked;
+  houseRuleTripleAces=document.getElementById('ruleTripleAces').checked;
+  houseRuleFreeRide=document.getElementById('ruleFreeRide').checked;
+  roundCount=0;
+  players=PLAYER_NAMES.slice(0,numPlayers).map((name,i)=>({name,isHuman:i===0,lives:maxLives(),hand:[]}));
+  dealerIdx=numPlayers-1;
+  document.getElementById('setupScreen').style.display='none';
+  document.getElementById('gameScreen').style.display='block';
+  document.getElementById('controlDock').removeAttribute('hidden');
+  document.getElementById('chatLog').innerHTML='';
+  setTimeout(syncDockHeight,0);
+  startNewRound();
+}
+
+function showSetup(){
+  document.getElementById('setupScreen').style.display='';
+  document.getElementById('gameScreen').style.display='none';
+  document.getElementById('controlDock').setAttribute('hidden','');
+  updateSetupPreview();
+}
+
+function startNewRound(){
+  document.getElementById('readyBtn').style.display='none';
+  roundCount++;
+  suitTrackingNext={'♠':0,'♥':0,'♦':0,'♣':0};
+  suitDrawn={'♠':0,'♥':0,'♦':0,'♣':0};
+  createDeck();
+  players.forEach(p=>{p.hand=p.lives>0?[deck.pop(),deck.pop(),deck.pop()]:[];});
+  discardPile=[deck.pop()];
+  firstActorIdx=nextActive(dealerIdx);activeIdx=firstActorIdx;
+  knockedByIdx=null;lastTurnQueue=[];mustDrawIdx=-1;isFirstAction=true;turnPhase='draw';knockQueued=false;
+  wasKnockedOffDeal=false;tripleAcesIdx=null;inferredSuits={};clearKnockActive();dismissPilesOverlay();
+  gameActive=true;lastDrawSource=null;lastDrawnIdx=-1;
+  renderAll();renderTrackingPanel();clearKnockedBadges();
+  dealCardAnimations();
+  // Check for triple aces on the deal before play begins
+  if(houseRuleTripleAces){
+    const tap=players.find(p=>p.lives>0&&p.hand.filter(c=>c.rank==='A').length===3);
+    if(tap){tripleAcesIdx=players.indexOf(tap);setTimeout(()=>{showTripleAcesSplash(tripleAcesIdx);setTimeout(endRound,2000);},600);return;}
+  }
+  updateTurnUI();
+}
+
+function dealCardAnimations(){
+  const all=[];
+  document.querySelectorAll('#opponentsRow .card').forEach(c=>all.push(c));
+  document.querySelectorAll('#myHand .card').forEach(c=>all.push(c));
+  const dc=document.querySelector('#discardSlot .card');if(dc)all.push(dc);
+  all.forEach((card,i)=>{
+    card.style.animationDelay=i*65+'ms';card.classList.add('deal-anim');
+    setTimeout(()=>SFX.deal(),i*65);
+    card.addEventListener('animationend',()=>{card.classList.remove('deal-anim');card.style.animationDelay='';},{once:true});
+  });
+}
+
+function createDeck(){
+  const suits=['♠','♥','♦','♣'],ranks=['A','2','3','4','5','6','7','8','9','10','J','Q','K'];
+  deck=[];for(const suit of suits)for(const rank of ranks)deck.push({suit,rank,value:cardValue(rank)});shuffle(deck);
+}
+function cardValue(r){if(r==='A')return 11;if(['J','Q','K'].includes(r))return 10;return parseInt(r);}
+function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}}
+function topDiscard(){return discardPile.length?discardPile[discardPile.length-1]:null;}
+
+function handScore(hand){
+  if(!hand||!hand.length)return 0;const b={};
+  for(const c of hand)b[c.suit]=(b[c.suit]||0)+c.value;return Math.max(...Object.values(b));
+}
+
+function nextActive(from){for(let i=1;i<=numPlayers;i++){const idx=(from+i)%numPlayers;if(players[idx].lives>0)return idx;}return -1;}
+function activePlayers(){return players.filter(p=>p.lives>0);}
+function isHumanTurn(){return players[activeIdx]&&players[activeIdx].isHuman;}
+
+function buildLastTurnQueue(ki){
+  const q=[];let idx=nextActive(ki);const seen=new Set([ki]);
+  while(!seen.has(idx)&&idx!==-1){seen.add(idx);q.push(idx);idx=nextActive(idx);}return q;
+}
+
+function updateTurnUI(){
+  if(!gameActive)return;
+  const p=players[activeIdx];highlightZones();
+  if(p.isHuman){
+    const inLast=knockedByIdx!==null;
+    const isFirstAfterKnock=activeIdx===mustDrawIdx;
+    if(isFirstAction){setTurnBanner('your-turn','🟢 Your Turn');setStatus("You can <strong>Knock off the deal</strong>, or take the <strong>top discard</strong> / <strong>draw from the deck</strong>.");}
+    else if(inLast&&isFirstAfterKnock){setTurnBanner('your-turn','🟢 Your Last Turn');setStatus("Last chance — you must <strong>draw from the deck</strong> (can't take the discard right after a knock), then discard one.");}
+    else if(inLast){setTurnBanner('your-turn','🟢 Your Last Turn');setStatus("Last chance — take the <strong>top discard</strong> (orange) or <strong>draw from the deck</strong> (green), then discard one.");}
+    else{setTurnBanner('your-turn','🟢 Your Turn');setStatus("Take the <strong>top discard</strong> (orange) or <strong>draw from the deck</strong> (green).");}
+
+    // Auto-fire queued knock if applicable
+    if(knockQueued&&!inLast){knockQueued=false;setTimeout(knock,120);return;}
+    knockQueued=false;
+    setKnockBtn(!inLast);setPileInteractive(true);
+  } else {
+    setTurnBanner('others-turn','🔵 '+p.name+"'s Turn");setStatus(p.name+' is thinking...');
+    // Only offer queued knock during normal play — not during last-turn sequence
+    if(knockedByIdx===null){setKnockQueueBtn();}else{knockQueued=false;setKnockBtn(false);}
+    setPileInteractive(false);setTimeout(aiTurn,isFirstAction?Math.max(aiActionMs,2000):aiActionMs);
+  }
+}
+
+function highlightZones(){
+  document.querySelectorAll('.zone,.opp-mini').forEach(z=>z.classList.remove('active-you','active-them'));
+  if(players[activeIdx].isHuman){document.getElementById('myZone').classList.add('active-you');setMyZoneLabel(turnPhase==='discard'?'Your Hand — click a card to discard':'Your Hand — draw a card first');}
+  else{const el=document.getElementById('oppMini_'+activeIdx);if(el)el.classList.add('active-them');setMyZoneLabel('Your Hand');}
+}
+
+function playerTakeDiscard(){
+  if(!gameActive||!isHumanTurn()||turnPhase!=='draw')return;
+  if(!topDiscard())return;
+  if(activeIdx===mustDrawIdx)return; // only the first player after a knock must draw from deck
+  isFirstAction=false;
+  const card=discardPile.pop();players[activeIdx].hand.push(card);
+  inferredSuits[activeIdx]=card.suit; // visible to all — AI notes what you're chasing
+  lastDrawSource='discard';lastDrawnIdx=players[activeIdx].hand.length-1;
+  turnPhase='discard';setPileInteractive(false);SFX.card();
+  renderAll();highlightZones();
+  showPilesOverlay('tc-draw-discard','You Take',card,false,true);
+  if(checkHuman31())return;
+  setStatus("You took the discard. <strong>Click the card you want to discard</strong>.");
+}
+
+function playerDrawFromDeck(){
+  if(!gameActive||!isHumanTurn()||turnPhase!=='draw')return;
+  if(!deck.length){setStatus("The deck is empty!");return;}
+  isFirstAction=false;
+  const card=deck.pop();players[activeIdx].hand.push(card);
+  lastDrawSource='deck';lastDrawnIdx=players[activeIdx].hand.length-1;
+  turnPhase='discard';setPileInteractive(false);SFX.card();
+  renderAll();highlightZones();
+  showPilesOverlay('tc-draw-deck','You Draw',null,true,true);
+  if(checkHuman31())return;
+  setStatus("Card drawn. <strong>Click the card you want to discard</strong>.");
+}
+
+function checkHuman31(){
+  const hand=players[activeIdx].hand;
+  if(bestScoreAfterDiscard(hand)!==31)return false;
+  // Auto-discard the non-contributing card and celebrate immediately
+  const wi=worstCardIdx(hand);
+  const autoDisc=hand.splice(wi,1)[0];discardPile.push(autoDisc);
+  lastDrawSource=null;lastDrawnIdx=-1;
+  tableChat(activeIdx,pick(["31! I'm done!","Thirty-one! Pay up!","31!! 🎉"]));
+  SFX.win31();showThirtyOneSplash(activeIdx);
+  renderAll();
+  setTimeout(endRound,1800);
+  return true;
+}
+
+function playerDiscard(idx){
+  if(!gameActive||!isHumanTurn()||turnPhase!=='discard')return;
+  const card=players[activeIdx].hand.splice(idx,1)[0];discardPile.push(card);
+  lastDrawSource=null;lastDrawnIdx=-1;turnPhase='draw';SFX.discard();
+  renderAll();showPilesOverlay('tc-discarded','You Discard',card,false,false);
+  setTimeout(afterTurnActions,1100);
+}
+
+function knock(){
+  if(!gameActive||!isHumanTurn()||turnPhase!=='draw')return;
+  knockedByIdx=activeIdx;SFX.knock();
+  if(isFirstAction){
+    isFirstAction=false;gameActive=false;wasKnockedOffDeal=true;setKnockBtn(false);setPileInteractive(false);
+    setTurnBanner('hidden','');clearKnockedBadges();
+    showKnockSplash('KNOCK!','Off the deal — round ends now!');
+    setStatus("Knocked off the deal! Revealing hands...");
+    aiReactToKnock(0);setTimeout(endRound,1800);
+  } else {
+    lastTurnQueue=buildLastTurnQueue(activeIdx);mustDrawIdx=lastTurnQueue.length>0?lastTurnQueue[0]:-1;setKnockBtn(false);setPileInteractive(false);
+    showKnockSplash('KNOCK!',lastTurnQueue.length>0?'Everyone gets one last turn...':'Round over!');
+    setKnockedBadge(activeIdx);setKnockActive('You');aiReactToKnock(0);setTimeout(advanceAfterKnock,1800);
+  }
+}
+
+function aiReactToKnock(ki){
+  const r=players.filter((p,i)=>!p.isHuman&&p.lives>0&&i!==ki);if(!r.length)return;
+  const rc=pick(r);const idx=players.indexOf(rc);setTimeout(()=>tableChat(idx,personalityLine(idx,'reactKnock')),700);
+}
+function advanceAfterKnock(){if(lastTurnQueue.length>0){activeIdx=lastTurnQueue.shift();updateTurnUI();}else endRound();}
+
+function afterTurnActions(){
+  const score=handScore(players[activeIdx].hand);
+  // House Rule: Triple Aces
+  if(houseRuleTripleAces&&players[activeIdx].hand.length===3&&players[activeIdx].hand.filter(c=>c.rank==='A').length===3){
+    tripleAcesIdx=activeIdx;SFX.win31();showTripleAcesSplash(activeIdx);setTimeout(endRound,2000);return;
+  }
+  if(score===31){
+    const p=players[activeIdx];
+    tableChat(activeIdx,p.isHuman?pick(["31! That's a chip from all of you!","Thirty-one! Pay up!"]):personalityLine(activeIdx,'thirtyOne'));
+    if(!p.isHuman)SFX.win31();showThirtyOneSplash(activeIdx);setTimeout(endRound,1800);return;
+  }
+  isFirstAction=false;
+  if(knockedByIdx!==null){if(lastTurnQueue.length>0){activeIdx=lastTurnQueue.shift();updateTurnUI();}else endRound();return;}
+  activeIdx=nextActive(activeIdx);updateTurnUI();
+}
+
+function aiTurn(){
+  if(!gameActive||players[activeIdx].isHuman)return;
+  const player=players[activeIdx];const current=handScore(player.hand);const inLast=knockedByIdx!==null;
+  const knockThresh=isFirstAction?aiKnockOffDealThreshold(activeIdx):aiKnockThreshold(activeIdx);
+  const eff=effectiveAggression(activeIdx);
+  const top=topDiscard();
+  // Chase-31 override: if holding A+10-value of same suit, aggressive players
+  // skip the knock and draw instead — gambling on the third suited card for 31.
+  // Jordan always chases (eff≥0.8), Alex sometimes (eff≥0.5), Sam never.
+  const shouldChase31=!inLast&&isChasing31(player.hand)&&eff>=0.5;
+  // Face-card knock signal: if a 10-value card is available but can't improve
+  // our hand, we're already well-optimized — knock rather than gamble on the deck.
+  // Conservative players (low eff) need a stronger signal before responding.
+  let activeKnockThresh=knockThresh;
+  if(!inLast&&!shouldChase31&&top&&cardFaceValue(top)>=10){
+    const faceImprove=bestScoreAfterDiscard([...player.hand,top])-current;
+    if(faceImprove<=0) activeKnockThresh=Math.round(knockThresh-eff*3);
+  }
+  if(!inLast&&current>=activeKnockThresh&&!shouldChase31){
+    knockedByIdx=activeIdx;SFX.knock();
+    if(isFirstAction){
+      // AI knocks off the deal
+      isFirstAction=false;gameActive=false;wasKnockedOffDeal=true;setKnockBtn(false);setPileInteractive(false);
+      setTurnBanner('hidden','');clearKnockedBadges();
+      showKnockSplash(player.name+' KNOCKS!','Off the deal — round ends now!');
+      tableChat(activeIdx,personalityLine(activeIdx,'knock'));
+      setTimeout(endRound,1800);return;
+    }
+    lastTurnQueue=buildLastTurnQueue(activeIdx);mustDrawIdx=lastTurnQueue.length>0?lastTurnQueue[0]:-1;
+    showKnockSplash(player.name+' KNOCKS!',lastTurnQueue.length>0?'Everyone gets one last turn...':'Round over!');
+    setKnockedBadge(activeIdx);setKnockActive(player.name);tableChat(activeIdx,personalityLine(activeIdx,'knock'));
+    setTimeout(advanceAfterKnock,1800);return;
+  }
+  if(shouldChase31){const line=personalityLine(activeIdx,'chase31');if(line)tableChat(activeIdx,line);}
+  if(activeIdx!==mustDrawIdx&&top){
+    if(aiShouldTakeDiscard(activeIdx,top,player.hand,inLast)){
+      const taken=discardPile.pop();player.hand.push(taken);
+      inferredSuits[activeIdx]=taken.suit; // visible to all — everyone notes what they're chasing
+      tableChat(activeIdx,personalityLine(activeIdx,'drawDiscard'));SFX.card();renderAll();
+      showPilesOverlay('tc-draw-discard',player.name+' Takes',taken,false,true);
+      setTimeout(aiDiscardPhase,aiActionMs*1.5);return;
+    }
+  }
+  if(deck.length>0){
+    player.hand.push(deck.pop());tableChat(activeIdx,personalityLine(activeIdx,'drawDeck'));SFX.card();renderAll();
+    showPilesOverlay('tc-draw-deck',player.name+' Draws',null,true,true);setTimeout(aiDiscardPhase,aiActionMs*1.5);
+  } else {tableChat(activeIdx,"Deck's empty — keeping my hand.");afterTurnActions();}
+}
+
+function aiDiscardPhase(){
+  if(!gameActive)return;
+  const player=players[activeIdx];
+  // Step 1 — find the mathematically optimal score achievable by any single discard.
+  const theoretical=bestScoreAfterDiscard(player.hand);
+  // Step 2 — collect every card index whose discard achieves that maximum.
+  const optimal=[];
+  for(let i=0;i<player.hand.length;i++){
+    if(handScore(player.hand.filter((_,j)=>j!==i))===theoretical) optimal.push(i);
+  }
+  // Step 3 — tiebreak among equally-good discards using suit-awareness.
+  // Suit-awareness can NEVER override math; it only chooses between tied options.
+  let wi=optimal[0];
+  if(optimal.length>1){
+    const nextIdx=nextActive(activeIdx);
+    const sabotage=shouldSabotage(activeIdx);
+    const nextSuit=inferredSuits[nextIdx];
+    let bestTie=-Infinity;
+    for(const i of optimal){
+      const card=player.hand[i];const fv=cardFaceValue(card);
+      let tie=0;
+      if(fv>=7){
+        for(const [pi,knownSuit] of Object.entries(inferredSuits)){
+          const idx=parseInt(pi);
+          if(idx===activeIdx||card.suit!==knownSuit) continue;
+          const isNext=idx===nextIdx;
+          if(sabotage&&isNext&&fv>=10&&card.suit===nextSuit) tie+=6;
+          else { if(fv>=10) tie-=isNext?8:4; else tie-=isNext?3:1; }
+        }
+      }
+      if(tie>bestTie){bestTie=tie;wi=i;}
+    }
+  }
+  const disc=player.hand.splice(wi,1)[0];discardPile.push(disc);
+  SFX.discard();renderAll();
+  showPilesOverlay('tc-discarded',player.name+' Discards',disc,false,false);
+  if(handScore(player.hand)===31){tableChat(activeIdx,personalityLine(activeIdx,'thirtyOne')||'31!');SFX.win31();showThirtyOneSplash(activeIdx);setTimeout(endRound,aiActionMs*1.4+1800);return;}
+  setTimeout(afterTurnActions,aiActionMs*1.4);
+}
+
+function bestScoreAfterDiscard(h){let b=0;for(let i=0;i<h.length;i++){const t=h.filter((_,j)=>j!==i);b=Math.max(b,handScore(t));}return b;}
+function worstCardIdx(h){let b=-1,bi=0;for(let i=0;i<h.length;i++){const s=handScore(h.filter((_,j)=>j!==i));if(s>b){b=s;bi=i;}}return bi;}
+
+// Returns true if this player should consider deliberately feeding a 31-chaser
+// to knock out a vulnerable low-chip opponent.
+/// Two triggers:
+//   1. Comfortable (max chips) and a vulnerable opponent exists — can afford the chip loss
+//   2. Bad hand (likely losing anyway) + almost out + vulnerable opponent — take someone down with you
+function shouldSabotage(playerIdx){
+  const myLives=players[playerIdx].lives;
+  const myScore=handScore(players[playerIdx].hand);
+  const others=players.filter((p,i)=>i!==playerIdx&&p.lives>0);
+  const vulnerable=others.some(p=>p.lives<=1);
+  if(!vulnerable)return false;
+  const eff=effectiveAggression(playerIdx);
+  if(eff<0.4)return false; // Sam never schemes
+  const ml=maxLives();
+  if(myLives>=ml)return true;                       // full chips — comfortable, sabotage freely
+  if(myLives>=ml-1&&myScore<16)return true;         // one chip down + bad hand — take someone with you
+  return false;
+}
+
+// Suit-aware discard: avoids feeding HIGH-value cards to known suit collectors.
+// Penalty scales with how much the card actually helps the collector:
+//   High (10,J,Q,K,A): strong penalty — handing a K♥ to a heart-chaser is unforgivable
+//   Mid (7-9):         light penalty — worth holding a turn if there's a better discard, but don't kill your hand
+//   Low (2-6):         no penalty — not worth sacrificing your hand to protect; dump it freely
+//
+// SABOTAGE MODE: if I have chips to spare and a weak opponent is on the ropes,
+// flip the penalty to a bonus — actively feed the 31-chaser to trigger a chip
+// loss that eliminates the vulnerable player. The 31-chaser does my dirty work.
+function worstCardIdxAware(hand,playerIdx){
+  const nextIdx=nextActive(playerIdx);
+  const sabotage=shouldSabotage(playerIdx);
+  const nextSuit=inferredSuits[nextIdx]; // what the next player is chasing (if known)
+  let best=-Infinity,bi=0;
+  for(let i=0;i<hand.length;i++){
+    const remaining=hand.filter((_,j)=>j!==i);
+    let score=handScore(remaining);
+    const card=hand[i];
+    const fv=cardFaceValue(card);
+    if(fv>=7){
+      for(const [pi,knownSuit] of Object.entries(inferredSuits)){
+        const idx=parseInt(pi);
+        if(idx===playerIdx||card.suit!==knownSuit)continue;
+        const isNext=idx===nextIdx;
+        if(sabotage&&isNext&&fv>=10&&card.suit===nextSuit){
+          // Sabotage: actively want to give this high card to the 31-chaser
+          score+=6;
+        } else {
+          if(fv>=10) score-=isNext?8:4; // high card: real deterrent
+          else       score-=isNext?3:1; // mid card (7-9): light nudge only
+        }
+      }
+    }
+    if(score>best){best=score;bi=i;}
+  }
+  return bi;
+}
+
+function endRound(){
+  gameActive=false;setKnockBtn(false);setPileInteractive(false);
+  setTurnBanner('hidden','');clearKnockedBadges();dismissPilesOverlay();
+  document.querySelectorAll('.zone,.opp-mini').forEach(z=>z.classList.remove('active-you','active-them'));
+  const scoreMap=players.map((p,i)=>({idx:i,player:p,score:p.lives>0?handScore(p.hand):null})).filter(x=>x.score!==null);
+  // House Rule: 5-or-Under on the Deal
+  if(houseRuleKnockLow&&wasKnockedOffDeal){
+    scoreMap.forEach(x=>{if(x.idx!==knockedByIdx&&x.score<=5)x.lowHandWin=true;});
+    if(scoreMap.some(x=>x.lowHandWin)){
+      SFX.win31();
+      const fiveWinners=scoreMap.filter(x=>x.lowHandWin);
+      showFiveUnderSplash(fiveWinners);
+      renderAll(true);
+      setTimeout(()=>{
+        scoreMap.filter(x=>x.lowHandWin).forEach(x=>markZone(x.idx,'zone-winner'));
+        scoreMap.filter(x=>!x.lowHandWin).forEach(x=>markZone(x.idx,'zone-loser'));
+        setTimeout(()=>applyRoundResult(scoreMap),1400);
+      },1800);return;
+    }
+  }
+  if(scoreMap.find(x=>x.score===31)){
+    SFX.win31();renderAll(true);
+    setTimeout(()=>{flashResultGlows(scoreMap);setTimeout(()=>applyRoundResult(scoreMap),1400);},600);return;
+  }
+  startShowdown(scoreMap);
+}
+
+function startShowdown(scoreMap){
+  SFX.showdown();const splash=document.getElementById('knockSplash');
+  splash.classList.add('showdown');showKnockSplash('SHOWDOWN','Revealing hands\u2026');
+  setTimeout(()=>{splash.classList.remove('showdown');beginRevealSequence(scoreMap);},1750);
+}
+
+function beginRevealSequence(scoreMap){
+  setStatus('\uD83C\uDFA4 Showdown \u2014 watching the reveal\u2026');
+  const ai=scoreMap.filter(x=>!x.player.isHuman).map(x=>x.idx);
+  for(let i=ai.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[ai[i],ai[j]]=[ai[j],ai[i]];}
+  const hu=scoreMap.find(x=>x.player.isHuman);
+  const order=hu?[...ai,hu.idx]:ai;
+  function revealNext(i){
+    if(i>=order.length){setTimeout(()=>{flashResultGlows(scoreMap);setTimeout(()=>applyRoundResult(scoreMap),1500);},650);return;}
+    revealPlayerInZone(order[i],scoreMap);setTimeout(()=>revealNext(i+1),950+Math.random()*750);
+  }
+  revealNext(0);
+}
+
+function revealPlayerInZone(pi,scoreMap){
+  const player=players[pi];const entry=scoreMap.find(x=>x.idx===pi);if(!entry)return;
+  const score=entry.score;
+  if(player.isHuman){
+    const el=document.getElementById('myScore');el.textContent=score;
+    el.style.cssText='';
+    el.classList.remove('reveal-score');void el.offsetWidth;el.classList.add('reveal-score');return;
+  }
+  const mini=document.getElementById('oppMini_'+pi);if(!mini)return;
+  const mc=mini.querySelector('.mini-cards');
+  if(mc){mc.innerHTML='';player.hand.forEach(card=>mc.appendChild(makeCard(card,null,['no-hover','sm','reveal-card'])));}
+  // Remove any existing score overlays and old mini-score badges
+  mini.querySelectorAll('.ai-score-pop,.mini-score').forEach(el=>el.remove());
+  const pop=document.createElement('div');pop.className='ai-score-pop';
+  pop.textContent=score;mini.appendChild(pop);
+  void pop.offsetWidth;pop.classList.add('popping');
+}
+
+function flashResultGlows(scoreMap){
+  document.querySelectorAll('.zone,.opp-mini').forEach(z=>z.classList.remove('zone-loser','zone-winner'));
+  // Triple aces: winner is the triple-ace player, losers are lowest-scoring opponents
+  if(tripleAcesIdx!==null){
+    markZone(tripleAcesIdx,'zone-winner');
+    const others=scoreMap.filter(x=>x.idx!==tripleAcesIdx);
+    const min=Math.min(...others.map(x=>x.score));
+    others.filter(x=>x.score===min).forEach(x=>markZone(x.idx,'zone-loser'));return;
+  }
+  const t31=scoreMap.find(x=>x.score===31);
+  if(t31){scoreMap.filter(x=>x.idx!==t31.idx).forEach(x=>markZone(x.idx,'zone-loser'));return;}
+  const min=Math.min(...scoreMap.map(x=>x.score));const low=scoreMap.filter(x=>x.score===min);
+  if(knockedByIdx!==null){
+    const ks=scoreMap.find(x=>x.idx===knockedByIdx)?.score;
+    if(ks===min&&(scoreMap.length===2||low.length===scoreMap.length)) markZone(knockedByIdx,'zone-loser'); // knocker beat nobody: only knocker highlighted
+    else if(ks===min&&low.length===1) markZone(knockedByIdx,'zone-loser'); // knocker alone at bottom
+    else low.forEach(x=>markZone(x.idx,'zone-loser')); // knocker beat someone, or partial tie: normal losers
+  } else low.forEach(x=>markZone(x.idx,'zone-loser'));
+}
+
+function markZone(pi,cls){const id=players[pi].isHuman?'myZone':'oppMini_'+pi;const el=document.getElementById(id);if(el)el.classList.add(cls);}
+
+// Returns the correct conjugation of "lose" for a list of losing players
+function loseVerb(arr){
+  if(arr.length>1)return' each lose';
+  return arr[0].player.isHuman?' lose':' loses';
+}
+
+function applyRoundResult(scoreMap){
+  document.querySelectorAll('.zone,.opp-mini').forEach(z=>z.classList.remove('zone-winner','zone-loser'));
+  let title,detail;
+
+  // House Rule: Triple Aces
+  if(tripleAcesIdx!==null){
+    const ta=players[tripleAcesIdx];
+    const others=scoreMap.filter(x=>x.idx!==tripleAcesIdx);
+    const min=Math.min(...others.map(x=>x.score));
+    const losers=others.filter(x=>x.score===min);
+    losers.forEach(x=>x.player.lives=Math.max(0,x.player.lives-1));
+    const ln=losers.map(x=>x.player.name).join(' & ');
+    title=ta.isHuman?'Triple Aces! You win! 🃏🃏🃏':ta.name+' lays down Triple Aces! 🃏';
+    detail=ln+loseVerb(losers)+' a chip with the lowest hand. 💀';
+    SFX.win31();
+    const sl=scoreMap.map(x=>x.player.name+': '+x.score).join('  |  ');renderAllLives();
+    const alive=activePlayers();
+    if(alive.length<=1){const w=alive[0]||players[0];showResult(w.isHuman?'You Win the Match! 🏆':w.name+' Wins the Match!',w.isHuman?'All other players are eliminated. Well played!':w.name+' is the last one standing!',sl,true);}
+    else showResult(title,detail,sl,false);return;
+  }
+
+  // House Rule: 5-or-Under on the Deal
+  if(scoreMap.some(x=>x.lowHandWin)){
+    const winners=scoreMap.filter(x=>x.lowHandWin);
+    const losers=scoreMap.filter(x=>!x.lowHandWin);
+    losers.forEach(x=>x.player.lives=Math.max(0,x.player.lives-1));
+    const wn=winners.map(x=>x.player.name).join(' & ');
+    const ln=losers.map(x=>x.player.name).join(' & ');
+    title=(winners.length===1&&winners[0].player.isHuman)?'Your 5-or-Under beats the knock! 🃏':wn+(winners.length>1?' save':' saves')+' with 5-or-Under! 🃏';
+    detail='5 or less on the deal — beats the knock. '+ln+loseVerb(losers)+' a chip. 💀';
+    SFX.win31();
+    const sl=scoreMap.map(x=>x.player.name+': '+x.score).join('  |  ');renderAllLives();
+    const alive=activePlayers();
+    if(alive.length<=1){const w=alive[0]||players[0];showResult(w.isHuman?'You Win the Match! 🏆':w.name+' Wins the Match!',w.isHuman?'All other players are eliminated. Well played!':w.name+' is the last one standing!',sl,true);}
+    else showResult(title,detail,sl,false);return;
+  }
+
+  const min=Math.min(...scoreMap.map(x=>x.score));const losers=scoreMap.filter(x=>x.score===min);
+  const t31=scoreMap.find(x=>x.score===31);
+  if(t31){
+    const w=t31.player;const others=scoreMap.filter(x=>x.idx!==t31.idx);
+    others.forEach(x=>{x.player.lives=Math.max(0,x.player.lives-1);});
+    const ln=others.map(x=>x.player.name).join(' & ');
+    title=w.isHuman?'You hit 31! \uD83C\uDFC6':w.name+' hits 31! \uD83C\uDFC6';
+    detail=ln+loseVerb(others)+' a chip. \uD83D\uDC80';
+    SFX.win31();tableChat(t31.idx,w.isHuman?pick(["31! Pay up, everyone!","Thirty-one! That's a chip from all of you."]):personalityLine(t31.idx,'thirtyOne'));
+  } else if(knockedByIdx!==null){
+    const ks=scoreMap.find(x=>x.idx===knockedByIdx)?.score;const kn=players[knockedByIdx].name;const km=players[knockedByIdx].isHuman;
+    if(ks>min){
+      losers.forEach(l=>l.player.lives=Math.max(0,l.player.lives-1));const ln=losers.map(l=>l.player.name).join(' & ');
+      title=ln+loseVerb(losers)+' a chip! \uD83D\uDC80';detail=kn+' knocked with the higher score.';
+      km?SFX.win():(SFX.lose(),tableChat(knockedByIdx,personalityLine(knockedByIdx,'knockWin')));
+    } else if(ks===min&&losers.length===1){
+      players[knockedByIdx].lives=Math.max(0,players[knockedByIdx].lives-2);
+      title=kn+' knocked and lost! \uD83D\uDC80\uD83D\uDC80';detail='Lowest score after knocking — loses 2 chips.';
+      SFX.lose();tableChat(knockedByIdx,km?"Knocked and lost... that's 2 chips gone. Ouch.":personalityLine(knockedByIdx,'knockLose'));
+    } else if(scoreMap.length===2||losers.length===scoreMap.length){
+      // 1-on-1 tie, OR everyone tied (knocker beat nobody): only the knocker loses a chip
+      players[knockedByIdx].lives=Math.max(0,players[knockedByIdx].lives-1);
+      const allTied=losers.length===scoreMap.length&&scoreMap.length>2;
+      title=kn+(allTied?' knocked — everyone tied! \uD83D\uDE2C':' knocked and tied! \uD83D\uDE2C');
+      detail=allTied?'Everyone tied — the knocker didn\'t beat anyone. Only '+kn+' loses a chip.':'Tied 1-on-1 — only the knocker loses a chip.';
+      SFX.lose();tableChat(knockedByIdx,km?"A tie — and I knocked. That costs me a chip!":personalityLine(knockedByIdx,'knockLose'));
+    } else {
+      // Multiplayer partial tie: knocker and tied-for-low opponents all lose a chip
+      losers.forEach(l=>l.player.lives=Math.max(0,l.player.lives-1));const ln=losers.map(l=>l.player.name).join(' & ');
+      title=ln+loseVerb(losers)+' a chip! \uD83D\uDE2C';detail='Tied for low — and '+kn+' knocked, so the knocker pays too.';
+      SFX.lose();tableChat(knockedByIdx,km?"A tie — and I knocked. That costs me a chip!":personalityLine(knockedByIdx,'knockLose'));
+    }
+  } else {
+    losers.forEach(l=>l.player.lives=Math.max(0,l.player.lives-1));const ln=losers.map(l=>l.player.name).join(' & ');
+    title=ln+loseVerb(losers)+' a chip! \uD83D\uDC80';detail='Lowest score'+(losers.length>1?'s':'')+' at the table.';
+    losers.some(l=>l.player.isHuman)?SFX.lose():SFX.win();
+  }
+  const sl=scoreMap.map(x=>x.player.name+': '+x.score).join('  |  ');renderAllLives();
+  title+=koLine(scoreMap);
+  const alive=activePlayers();
+  if(alive.length<=1){const w=alive[0]||players[0];w.isHuman?SFX.win():SFX.lose();if(w.isHuman)launchConfetti();showResult(w.isHuman?'You Win the Match! \uD83C\uDFC6':w.name+' Wins the Match!',w.isHuman?'All other players are eliminated. Well played!':w.name+' is the last one standing!',sl,true);}
+  else showResult(title,detail,sl,false);
+}
+
+function renderAll(revealAll=false){renderOpponentMinis(revealAll);renderMyZone();renderDiscardSlot();document.getElementById('deckCount').textContent=deck.length+' left';syncDockHeight();}
+
+function renderOpponentMinis(revealAll){
+  const container=document.getElementById('opponentsRow');container.innerHTML='';
+  const ai=players.filter(p=>!p.isHuman);
+  container.className=ai.length===3?'arc-3':ai.length===2?'arc-2':'arc-1';
+  ai.forEach(p=>{
+    const i=players.indexOf(p);const mini=document.createElement('div');mini.className='opp-mini';mini.id='oppMini_'+i;
+    const hdr=document.createElement('div');hdr.className='mini-header';
+    const av=document.createElement('span');av.className='player-avatar';av.textContent=PLAYER_AVATARS[i];hdr.appendChild(av);
+    const nm=document.createElement('span');nm.className='mini-name';nm.textContent=p.name;hdr.appendChild(nm);
+    if(i===dealerIdx){const d=document.createElement('span');d.className='chip chip-dealer';d.textContent='D';hdr.appendChild(d);}
+    else if(p.lives===0){const d=document.createElement('span');d.className='chip chip-out';d.textContent='OUT';hdr.appendChild(d);}
+    const dots=document.createElement('div');dots.className='life-dots';
+    const ml=maxLives();
+    for(let d=0;d<ml;d++){
+      const dot=document.createElement('span');
+      const isFR=houseRuleFreeRide&&d===0;
+      const isLost=d>=p.lives;
+      const onRide=isFR&&p.lives===1&&p.lives>0;
+      let cls='dot';
+      if(isFR)cls+=' free-ride';
+      if(isLost)cls+=' lost';
+      if(onRide)cls+=' on-ride';
+      dot.className=cls;
+      dots.appendChild(dot);
+    }
+    hdr.appendChild(dots);
+    if(houseRuleFreeRide&&p.lives===1&&p.lives>0){const b=document.createElement('span');b.className='free-ride-badge';b.textContent='FREE RIDE';hdr.appendChild(b);}
+    mini.appendChild(hdr);
+    const mc=document.createElement('div');mc.className='mini-cards';
+    if(p.lives>0)p.hand.forEach(card=>mc.appendChild(revealAll?makeCard(card,null,['no-hover','sm']):makeFaceDown(true)));
+    else{const out=document.createElement('span');out.style.cssText='opacity:0.4;font-size:0.78rem;';out.textContent='Eliminated';mc.appendChild(out);}
+    mini.appendChild(mc);container.appendChild(mini);
+  });
+}
+
+function renderMyZone(){
+  const me=players[0];const el=document.getElementById('myHand');el.innerHTML='';
+  const inDiscard=gameActive&&isHumanTurn()&&turnPhase==='discard';
+  me.hand.forEach((card,i)=>{
+    const cls=[];if(inDiscard)cls.push('discard-candidate');
+    const isNew=i===lastDrawnIdx&&lastDrawSource!==null;if(isNew)cls.push('new-card');
+    const fn=inDiscard?()=>playerDiscard(i):null;const div=makeCard(card,fn,cls);
+    if(isNew&&lastDrawSource){const b=document.createElement('span');b.className='source-badge from-'+lastDrawSource;b.textContent=lastDrawSource==='discard'?'\u2190 discard':'\u2190 deck';div.appendChild(b);}
+    el.appendChild(div);
+  });
+  const score=me.hand.length===3?handScore(me.hand):null;
+  const se=document.getElementById('myScore');se.textContent=score!==null?score:'\u2014';se.style.cssText='';
+  renderMyHeader();
+}
+
+function renderMyHeader(){
+  const me=players[0];const livesEl=document.getElementById('myLives');livesEl.innerHTML='';
+  if(0===dealerIdx){const d=document.createElement('span');d.className='chip chip-dealer';d.textContent='DEALER';d.style.marginRight='5px';livesEl.appendChild(d);}
+  const ml=maxLives();
+  for(let d=0;d<ml;d++){
+    const dot=document.createElement('span');
+    const isFR=houseRuleFreeRide&&d===0;
+    const isLost=d>=me.lives;
+    const onRide=isFR&&me.lives===1&&me.lives>0;
+    let cls='dot';
+    if(isFR)cls+=' free-ride';
+    if(isLost)cls+=' lost';
+    if(onRide)cls+=' on-ride';
+    dot.className=cls;
+    livesEl.appendChild(dot);
+  }
+  if(houseRuleFreeRide&&me.lives===1&&me.lives>0){const b=document.createElement('span');b.className='free-ride-badge';b.textContent='FREE RIDE';livesEl.appendChild(b);}
+}
+
+function renderAllLives(){renderMyHeader();renderOpponentMinis(false);renderTrackingPanel();}
+
+function renderDiscardSlot(){
+  const slot=document.getElementById('discardSlot');slot.innerHTML='';
+  const top=topDiscard();
+  if(top){
+    const canTake=gameActive&&isHumanTurn()&&turnPhase==='draw'&&activeIdx!==mustDrawIdx;
+    const cls=['discard-pick'];if(canTake)cls.push('pulsing');
+    const card=makeCard(top,canTake?playerTakeDiscard:null,cls);if(!canTake)card.style.cursor='default';
+    slot.appendChild(card);
+  } else {const e=document.createElement('div');e.className='empty-discard';e.textContent='Empty';slot.appendChild(e);}
+}
+
+function makeCard(card,clickFn,extraClasses=[]){
+  const isRed=card.suit==='♥'||card.suit==='♦';const div=document.createElement('div');
+  div.className=['card',isRed?'red':'',...extraClasses].filter(Boolean).join(' ');
+  div.innerHTML=`<div class="card-corner tl"><span class="corner-rank">${card.rank}</span><span class="corner-suit">${card.suit}</span></div><div class="card-center-pip">${card.suit}</div><div class="card-corner br"><span class="corner-rank">${card.rank}</span><span class="corner-suit">${card.suit}</span></div>`;
+  if(clickFn)div.onclick=clickFn;return div;
+}
+function makeFaceDown(small=false){const div=document.createElement('div');div.className='card face-down'+(small?' sm':'');return div;}
+
+function setStatus(msg){document.getElementById('gameStatus').innerHTML=msg;}
+function setMyZoneLabel(t){document.getElementById('myZoneLabel').textContent=t;}
+function setKnockBtn(on){
+  const btn=document.getElementById('knockBtn');
+  if(!on) knockQueued=false;
+  btn.disabled=!on;btn.textContent='Knock 🤛';btn.classList.remove('knock-queued');btn.onclick=knock;
+}
+function setKnockQueueBtn(){
+  const btn=document.getElementById('knockBtn');
+  btn.disabled=false;
+  btn.textContent=knockQueued?'Cancel Queue ✕':'Knock Next Turn 🤛';
+  btn.classList.toggle('knock-queued',knockQueued);
+  btn.onclick=toggleKnockQueue;
+}
+function toggleKnockQueue(){
+  knockQueued=!knockQueued;
+  setKnockQueueBtn();
+}
+function setTurnBanner(state,text){const el=document.getElementById('turnBanner');el.className=state==='hidden'?'hidden':state;el.textContent=text;document.body.classList.toggle('your-turn',state==='your-turn');}
+
+function showPilesOverlay(state,header,card,faceDown,persist){
+  const tc=document.getElementById('tableCenter');
+  const po=document.getElementById('pilesOverlay');
+  const ph=document.getElementById('poHeader');
+  const pw=document.getElementById('poCardWrap');
+  // Table center tint (skip during knock-active so red stays dominant)
+  tc.classList.remove('tc-draw-deck','tc-draw-discard','tc-discarded');
+  if(state&&!document.body.classList.contains('knock-active'))tc.classList.add(state);
+  // Header text
+  if(ph)ph.textContent=header;
+  // Card element
+  if(pw){
+    pw.innerHTML='';
+    const el=document.createElement('div');
+    if(faceDown||!card){
+      el.className='card face-down';
+    } else {
+      const red=card.suit==='♥'||card.suit==='♦';
+      el.className='card'+(red?' red':'');
+      el.innerHTML=`<div class="card-corner tl"><span class="corner-rank">${card.rank}</span><span class="corner-suit">${card.suit}</span></div><div class="card-center-pip">${card.suit}</div><div class="card-corner br"><span class="corner-rank">${card.rank}</span><span class="corner-suit">${card.suit}</span></div>`;
+    }
+    pw.appendChild(el);
+  }
+  // Set overlay state class and show
+  po.className='visible '+(state||'');
+  clearTimeout(po._dt);clearTimeout(tc._flashTimer);
+  if(!persist){
+    po._dt=setTimeout(dismissPilesOverlay,900);
+  }
+}
+function dismissPilesOverlay(){
+  const tc=document.getElementById('tableCenter');
+  const po=document.getElementById('pilesOverlay');
+  if(po){po.className='';} // removes visible + state, triggers fade-out via transition
+  tc.classList.remove('tc-draw-deck','tc-draw-discard','tc-discarded');
+}
+function setPileInteractive(on){const dp=document.getElementById('drawPile');if(on){dp.classList.remove('disabled');dp.classList.add('pulsing');}else{dp.classList.add('disabled');dp.classList.remove('pulsing');}renderDiscardSlot();}
+
+function tableChat(si,msg){
+  if(!msg)return;const log=document.getElementById('chatLog');const div=document.createElement('div');
+  div.className='chat-msg'+(si===-1?' system':'');div.textContent=(si>=0?'\uD83C\uDCCF':'ℹ️')+' '+(si>=0?players[si].name:'Game')+': '+msg;
+  log.appendChild(div);log.scrollTop=log.scrollHeight;
+}
+
+function showActionSplash(label,card,faceDown,subtitle,duration){
+  duration=duration!==undefined?duration:1450;
+  document.getElementById('actionLabel').textContent=label;
+  document.getElementById('actionSubtitle').textContent=subtitle||'';
+  const wrap=document.getElementById('actionCardWrap');wrap.innerHTML='';
+  const cardEl=document.createElement('div');cardEl.className='action-card-big';
+  if(faceDown){cardEl.classList.add('face-down');cardEl.textContent='\uD83C\uDCA0';}
+  else if(card){
+    if(card.suit==='♥'||card.suit==='♦')cardEl.classList.add('red');
+    cardEl.innerHTML=`<div class="card-corner tl"><span class="corner-rank">${card.rank}</span><span class="corner-suit">${card.suit}</span></div><div class="card-center-pip">${card.suit}</div><div class="card-corner br"><span class="corner-rank">${card.rank}</span><span class="corner-suit">${card.suit}</span></div>`;
+  }
+  wrap.appendChild(cardEl);const splash=document.getElementById('actionSplash');splash.classList.remove('hidden');
+  clearTimeout(splash._hideTimer);splash._hideTimer=setTimeout(()=>splash.classList.add('hidden'),duration);
+}
+
+function showKnockSplash(word,sub){
+  const splash=document.getElementById('knockSplash');const w=document.getElementById('knockWord');const s=document.getElementById('knockSub');
+  w.textContent=word;s.textContent=sub;splash.classList.remove('hidden');
+  w.style.animation='none';s.style.animation='none';requestAnimationFrame(()=>{w.style.animation='';s.style.animation='';});
+  setTimeout(()=>splash.classList.add('hidden'),1700);
+}
+
+function showTripleAcesSplash(pi){
+  const p=players[pi];const splash=document.getElementById('knockSplash');
+  splash.classList.add('gold');
+  showKnockSplash('🃏🃏🃏 TRIPLE ACES!',p.isHuman?'You lay down three aces!':p.name+' lays down three aces!');
+  setTimeout(()=>splash.classList.remove('gold'),2600);
+}
+function showThirtyOneSplash(pi){
+  const p=players[pi];const splash=document.getElementById('knockSplash');
+  splash.classList.add('gold');showKnockSplash('31!',p.isHuman?'You hit 31! \uD83C\uDFC6':p.name+' hits 31!');
+  setTimeout(()=>splash.classList.remove('gold'),2200);
+}
+function showFiveUnderSplash(winners){
+  const splash=document.getElementById('knockSplash');
+  splash.classList.add('green');
+  const names=winners.map(x=>x.player.isHuman?'You':x.player.name).join(' & ');
+  const scores=winners.map(x=>x.score).join(' & ');
+  const headline=winners.length===1&&winners[0].player.isHuman?'5-OR-UNDER SAVES YOU!':'5-OR-UNDER!';
+  const sub=names+(winners.length>1?' escape':' escapes')+' with '+scores+'!';
+  showKnockSplash(headline,sub);
+  setTimeout(()=>splash.classList.remove('green'),2800);
+}
+
+function setKnockedBadge(pi){
+  clearKnockedBadges();
+  const sel=players[pi].isHuman?'#myZone .zone-header':'#oppMini_'+pi+' .mini-header';
+  const hdr=document.querySelector(sel);if(!hdr)return;
+  const b=document.createElement('span');b.className='chip chip-knocked';b.textContent='KNOCKED';hdr.appendChild(b);
+}
+function clearKnockedBadges(){document.querySelectorAll('.chip-knocked').forEach(b=>b.remove());}
+
+let resultMatchOver=false;
+function launchConfetti(){
+  const canvas=document.getElementById('confettiCanvas');
+  const ctx=canvas.getContext('2d');
+  canvas.width=window.innerWidth;canvas.height=window.innerHeight;
+  canvas.style.display='block';
+  const colors=['#f1c40f','#2ecc71','#e74c3c','#3498db','#e67e22','#9b59b6','#ffffff','#5fffab','#ff6b6b','#ffd700'];
+  const pieces=Array.from({length:180},()=>({
+    x:Math.random()*canvas.width,
+    y:Math.random()*canvas.height-canvas.height,
+    w:Math.random()*12+5, h:Math.random()*7+4,
+    color:colors[Math.floor(Math.random()*colors.length)],
+    rot:Math.random()*Math.PI*2,
+    rotSpeed:(Math.random()-0.5)*0.18,
+    vx:(Math.random()-0.5)*4,
+    vy:Math.random()*5+2
+  }));
+  const start=Date.now();let raf;
+  (function animate(){
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    const t=(Date.now()-start)/1000;
+    const alpha=t>3?Math.max(0,1-(t-3)/1.5):1;
+    pieces.forEach(p=>{
+      p.x+=p.vx;p.y+=p.vy;p.rot+=p.rotSpeed;
+      if(p.y>canvas.height){p.y=-p.h;p.x=Math.random()*canvas.width;}
+      ctx.save();ctx.globalAlpha=alpha;
+      ctx.translate(p.x+p.w/2,p.y+p.h/2);ctx.rotate(p.rot);
+      ctx.fillStyle=p.color;ctx.fillRect(-p.w/2,-p.h/2,p.w,p.h);
+      ctx.restore();
+    });
+    if(t<4.5){raf=requestAnimationFrame(animate);}
+    else{canvas.style.display='none';ctx.clearRect(0,0,canvas.width,canvas.height);}
+  })();
+}
+
+function koLine(scoreMap){
+  const ko=scoreMap.filter(x=>x.player.lives===0);
+  if(!ko.length)return'';
+  if(ko.length===1&&ko[0].player.isHuman)return'\nAND YOU\'RE OUT!';
+  const names=ko.map(x=>x.player.isHuman?'YOU':x.player.name).join(' & ');
+  return'\n'+(ko.length>1?names+' ARE OUT!':names+' IS OUT!');
+}
+function showResult(title,detail,scoresLine,matchOver){
+  resultMatchOver=matchOver;
+  const po=document.getElementById('pilesOverlay');
+  const tc=document.getElementById('tableCenter');
+  document.getElementById('poHeader').textContent=title;
+  document.getElementById('poCardWrap').innerHTML='';
+  const sub=document.getElementById('poSub');
+  sub.innerHTML='<span class="po-tap">Tap to continue</span>';
+  tc.classList.remove('tc-draw-deck','tc-draw-discard','tc-discarded');
+  clearTimeout(po._dt);
+  po.className='visible result';
+}
+
+function closeRoundResult(){
+  dismissPilesOverlay();
+  document.getElementById('poSub').innerHTML='';
+  const mo=resultMatchOver;resultMatchOver=false;
+  if(mo){showSetup();return;}
+  dealerIdx=nextActive(dealerIdx);if(activePlayers().length<=1){showSetup();return;}startNewRound();
+}
+
+function showReadyScreen(){
+  players.forEach(p=>{p.hand=[];});lastDrawSource=null;lastDrawnIdx=-1;discardPile=[];deck=[];
+  renderAll();renderAllLives();renderTrackingPanel();
+  const dealer=players[dealerIdx];
+  setStatus((dealer.isHuman?'You deal next':dealer.name+' deals next')+'. Take a moment, then deal when ready.');
+  setTurnBanner('hidden','');document.getElementById('readyBtn').style.display='block';
+  document.getElementById('knockBtn').disabled=true;setPileInteractive(false);
+}
+
+function fireReaction(emoji){
+  const isBoo=emoji==='BOOOO';const el=document.createElement('div');
+  el.className='reaction-float'+(isBoo?' is-boo':'');el.textContent=emoji;
+  el.style.setProperty('--drift',(Math.random()-0.5)*100+'px');
+  if(!isSidePanel())el.style.left=(25+Math.random()*50)+'%';
+  document.body.appendChild(el);setTimeout(()=>el.remove(),1550);
+}
+
+function pick(arr){return arr[Math.floor(Math.random()*arr.length)];}
+
+function setKnockActive(playerName){
+  document.body.classList.add('knock-active');
+  const ki=document.getElementById('knockIndicator');
+  if(ki){ki.textContent='⚡ '+(playerName==='You'?'YOU':playerName.toUpperCase())+' KNOCKED — LAST TURNS';ki.classList.add('visible');}
+}
+function clearKnockActive(){
+  document.body.classList.remove('knock-active');
+  const ki=document.getElementById('knockIndicator');
+  if(ki)ki.classList.remove('visible');
+}
+
+updateSetupPreview();
+
+// ── Layout engine: side panel vs bottom dock ──
+function isSidePanel(){ return window.innerWidth>=700; }
+
+function syncDockHeight(){
+  const dock=document.getElementById('controlDock');
+  if(!dock||dock.hasAttribute('hidden'))return;
+  if(isSidePanel()){
+    // Side panel: full height on right, game area gets full viewport height
+    const dockW=Math.ceil(dock.getBoundingClientRect().width)||242;
+    document.body.style.paddingBottom='12px';
+    document.body.style.paddingRight=(dockW+4)+'px';
+    document.documentElement.style.setProperty('--dock-h','60px');
+  } else {
+    // Bottom dock: set body padding to match dock height
+    const h=Math.ceil(dock.getBoundingClientRect().height);
+    document.body.style.paddingRight='12px';
+    document.body.style.paddingBottom=h+'px';
+    document.documentElement.style.setProperty('--dock-h',(h+8)+'px');
+  }
+  fitTableToViewport();
+}
+
+function fitTableToViewport(){
+  const tableArea=document.getElementById('tableArea');
+  const gameScreen=document.getElementById('gameScreen');
+  if(!tableArea||!gameScreen||gameScreen.style.display==='none')return;
+  tableArea.style.zoom='1';
+  const h1=gameScreen.querySelector('h1');
+  const h1H=h1?h1.getBoundingClientRect().height+parseInt(getComputedStyle(h1).marginBottom||'10'):0;
+  const topPad=12;
+  let availH;
+  if(isSidePanel()){
+    // Full viewport height available (no bottom dock eating space)
+    availH=window.innerHeight-h1H-topPad-8;
+  } else {
+    const dock=document.getElementById('controlDock');
+    const dockH=dock&&!dock.hasAttribute('hidden')?Math.ceil(dock.getBoundingClientRect().height):0;
+    availH=window.innerHeight-dockH-h1H-topPad-6;
+  }
+  const tableH=tableArea.scrollHeight;
+  if(tableH>availH){
+    const zoom=Math.max(0.62, availH/tableH);
+    tableArea.style.zoom=zoom.toFixed(3);
+  }
+}
+
+if(window.ResizeObserver){
+  new ResizeObserver(syncDockHeight).observe(document.getElementById('controlDock'));
+}
+window.addEventListener('resize',syncDockHeight);
+</script>
+</body>
+</html>
