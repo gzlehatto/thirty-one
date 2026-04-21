@@ -292,7 +292,7 @@
     #pilesOverlay.result .po-right { display:none; }
     #pilesOverlay.result .po-header { font-size:2rem; line-height:1.3; white-space:pre-line; }
     .po-sub { font-size:0.82rem; opacity:0.55; text-align:center; margin-top:10px; line-height:1.6; font-family:monospace; }
-    .po-tap { display:block; font-size:0.65rem; opacity:0.35; text-transform:uppercase; letter-spacing:2px; margin-top:14px; }
+    .po-tap { display:block; font-size:1.25rem; opacity:1; text-transform:uppercase; letter-spacing:3px; margin-top:22px; font-weight:900; color:#f1c40f; text-shadow:0 0 12px rgba(241,196,15,0.7),0 0 24px rgba(241,196,15,0.35); animation:knockIndPulse 1.4s ease-in-out infinite; }
     /* ── Narrow phones: bottom-dock tweaks ── */
     @media(max-width:480px){
       .card,.draw-pile,.empty-discard{width:56px;height:82px} .card.sm{width:40px;height:58px}
@@ -1027,7 +1027,7 @@ function aiReactToKnock(ki){
   const r=players.filter((p,i)=>!p.isHuman&&p.lives>0&&i!==ki);if(!r.length)return;
   const rc=pick(r);const idx=players.indexOf(rc);setTimeout(()=>tableChat(idx,personalityLine(idx,'reactKnock')),700);
 }
-function advanceAfterKnock(){if(lastTurnQueue.length>0){activeIdx=lastTurnQueue.shift();updateTurnUI();}else endRound();}
+function advanceAfterKnock(){if(lastTurnQueue.length>0){activeIdx=lastTurnQueue.shift();if(isMultiplayer&&mpIsHost)setTimeout(pushState,60);updateTurnUI();}else endRound();}
 
 function afterTurnActions(){
   const score=handScore(players[activeIdx].hand);
@@ -1639,6 +1639,7 @@ function koLine(scoreMap){
 }
 function showResult(title,detail,scoresLine,matchOver){
   resultMatchOver=matchOver;
+  if(isMultiplayer&&mpIsHost)setTimeout(pushState,60);
   const po=document.getElementById('pilesOverlay');
   const tc=document.getElementById('tableCenter');
   document.getElementById('poHeader').textContent=title;
@@ -1663,6 +1664,7 @@ function closeRoundResult(){
   document.getElementById('poSub').innerHTML='';
   const mo=resultMatchOver;resultMatchOver=false;
   if(mo){if(isMultiplayer)leaveLobby();else showSetup();return;}
+  if(isMultiplayer&&!mpIsHost){setStatus("Waiting for host to deal next round...");dismissPilesOverlay();return;}
   dealerIdx=nextActive(dealerIdx);if(activePlayers().length<=1){showSetup();return;}startNewRound();
 }
 
@@ -1913,8 +1915,23 @@ function onStateReceived(canonical){
   if(!isMultiplayer)return;
   if(canonical.pushedBy===mpPlayerId)return;  // our own echo
   const local=mpCanonicalSeat===0?canonical:rotateState(canonical,mpCanonicalSeat,canonical.players?.length||2);
+  const wasActive=gameActive;
   applyState(local);
   if(document.getElementById('lobbyScreen').style.display!=='none'){showMpGameScreen();}
+  // New round starting — dismiss any result overlay and re-render fresh
+  if(local.gameActive&&!wasActive){
+    dismissPilesOverlay();
+    document.getElementById('poSub').innerHTML='';
+    renderAll();updateTurnUI();return;
+  }
+  // Round just ended — show revealed hands and wait message
+  if(!local.gameActive&&wasActive&&!mpIsHost){
+    renderAll(true);renderAllLives();
+    setTurnBanner('hidden','');
+    setStatus('Round over! Waiting for host to deal next round...');
+    setPileInteractive(false);setKnockBtn(false);
+    return;
+  }
   renderAll();
   updateTurnUI();
 }
