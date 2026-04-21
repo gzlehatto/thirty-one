@@ -7,244 +7,6 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@700;900&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2">
-// ════════════════════════════════════════════════════════════════
-// MULTIPLAYER  —  Supabase Realtime
-// ════════════════════════════════════════════════════════════════
-const MP_URL  = 'https://hfxwmfpnkburzzhnmuje.supabase.co';
-const MP_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhmeHdtZnBua2J1cnp6aG5tdWplIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY3OTU3MDIsImV4cCI6MjA5MjM3MTcwMn0.MWLjw7v2wzmK1mLJ64ZgmK2ClCCz9XXfnAzuzjnbPNE';
-
-let _sb=null;
-function getSB(){if(!_sb)_sb=window.supabase.createClient(MP_URL,MP_KEY);return _sb;}
-
-// ── Multiplayer state ──
-let isMultiplayer=false;
-let mpRoomId=null,mpRoomCode=null;
-let mpPlayerId=(()=>{let id=sessionStorage.getItem('mpPid');if(!id){id=crypto.randomUUID();sessionStorage.setItem('mpPid',id);}return id;})();
-let mpPlayerName='';
-let mpCanonicalSeat=0;   // this player's seat in un-rotated (host) order
-let mpIsHost=false;
-let mpChannel=null;
-let mpDidAct=false;      // true after local player/host-AI completes a turn action → triggers push
-
-// ── SCREEN MANAGEMENT ──
-function showOnlineMenu(){
-  document.getElementById('setupScreen').style.display='none';
-  document.getElementById('lobbyScreen').style.display='';
-  document.getElementById('lobbyEntry').style.display='';
-  document.getElementById('lobbyWaiting').style.display='none';
-  document.getElementById('mpStatusMsg').textContent='';
-  setTimeout(()=>document.getElementById('mpNameInput').focus(),100);
-}
-function showSetupFromLobby(){
-  document.getElementById('lobbyScreen').style.display='none';
-  document.getElementById('setupScreen').style.display='';
-}
-function showMpTab(tab){
-  document.getElementById('mpCreateSection').style.display=tab==='create'?'':'none';
-  document.getElementById('mpJoinSection').style.display=tab==='join'?'':'none';
-  document.getElementById('tabCreate').classList.toggle('active',tab==='create');
-  document.getElementById('tabJoin').classList.toggle('active',tab==='join');
-}
-function mpSetStatus(msg){document.getElementById('mpStatusMsg').textContent=msg;}
-function leaveLobby(){
-  if(mpChannel){getSB().removeChannel(mpChannel);mpChannel=null;}
-  mpRoomId=null;mpRoomCode=null;mpIsHost=false;isMultiplayer=false;
-  showSetupFromLobby();
-}
-
-// ── CREATE ROOM ──
-async function mpCreateRoom(){
-  const name=document.getElementById('mpNameInput').value.trim();
-  if(!name){mpSetStatus('Enter your name first!');return;}
-  mpPlayerName=name; mpIsHost=true; mpCanonicalSeat=0;
-  const btn=document.getElementById('mpCreateBtn');btn.disabled=true;btn.textContent='Creating...';
-  const sb=getSB();
-  // Find unique 4-digit code
-  let code,tries=0;
-  while(tries++<20){
-    code=String(1000+Math.floor(Math.random()*9000));
-    const {data}=await sb.from('rooms').select('id').eq('code',code).eq('status','waiting').maybeSingle();
-    if(!data)break;
-  }
-  const {data:room,error}=await sb.from('rooms').insert({code,host_id:mpPlayerId,status:'waiting',max_players:6}).select().single();
-  btn.disabled=false;btn.textContent='Create Room 🎮';
-  if(error){mpSetStatus('Could not create room — try again.');console.error(error);return;}
-  mpRoomId=room.id; mpRoomCode=code;
-  await sb.from('room_players').insert({room_id:mpRoomId,player_id:mpPlayerId,display_name:name,seat:0,is_bot:false});
-  showWaitingRoom(); subscribeRoom();
-}
-
-// ── JOIN ROOM ──
-async function mpJoinRoom(){
-  const name=document.getElementById('mpNameInput').value.trim();
-  const code=document.getElementById('mpCodeInput').value.trim().replace(/\D/g,'');
-  if(!name){mpSetStatus('Enter your name!');return;}
-  if(code.length!==4){mpSetStatus('Enter the 4-digit room code!');return;}
-  mpPlayerName=name; mpIsHost=false;
-  const btn=document.getElementById('mpJoinBtn');btn.disabled=true;btn.textContent='Joining...';
-  const sb=getSB();
-  const {data:room,error}=await sb.from('rooms').select('*').eq('code',code).eq('status','waiting').maybeSingle();
-  btn.disabled=false;btn.textContent='Join Room →';
-  if(error||!room){mpSetStatus('Room not found or game already started!');return;}
-  mpRoomId=room.id; mpRoomCode=code;
-  const {data:existing}=await sb.from('room_players').select('seat').eq('room_id',mpRoomId);
-  const taken=new Set((existing||[]).map(p=>p.seat));
-  let seat=0; while(taken.has(seat))seat++;
-  mpCanonicalSeat=seat;
-  const {error:joinErr}=await sb.from('room_players').insert({room_id:mpRoomId,player_id:mpPlayerId,display_name:name,seat,is_bot:false});
-  if(joinErr){mpSetStatus('Could not join — room may be full.');return;}
-  showWaitingRoom(); subscribeRoom();
-}
-
-// ── WAITING ROOM ──
-function showWaitingRoom(){
-  document.getElementById('lobbyEntry').style.display='none';
-  document.getElementById('lobbyWaiting').style.display='';
-  document.getElementById('lobbyRoomCode').textContent=mpRoomCode;
-  document.getElementById('lobbyStartBtn').style.display=mpIsHost?'':'none';
-  refreshLobbyList();
-}
-async function refreshLobbyList(){
-  const sb=getSB();
-  const {data:rp}=await sb.from('room_players').select('*').eq('room_id',mpRoomId).order('seat');
-  if(!rp)return;
-  document.getElementById('lobbyPlayerList').innerHTML=rp.map(p=>`<div class="lobby-player-row">${p.is_bot?'🤖':p.player_id===mpPlayerId?'👤':'🎮'} <span>${p.display_name}</span>${p.seat===0?'<span class="lobby-host-badge">HOST</span>':''}</div>`).join('');
-  document.getElementById('lobbyPlayerCount').textContent=rp.length+' player'+(rp.length!==1?'s':'')+' in room';
-}
-
-// ── REALTIME SUBSCRIPTION ──
-function subscribeRoom(){
-  const sb=getSB();
-  mpChannel=sb.channel('room_'+mpRoomId)
-    .on('postgres_changes',{event:'*',schema:'public',table:'room_players',filter:'room_id=eq.'+mpRoomId},()=>{refreshLobbyList();})
-    .on('postgres_changes',{event:'*',schema:'public',table:'game_state',filter:'room_id=eq.'+mpRoomId},(payload)=>{if(payload.new&&payload.new.state)onStateReceived(payload.new.state);})
-    .subscribe();
-}
-
-// ── START ONLINE GAME (host only) ──
-async function mpStartGame(){
-  if(!mpIsHost)return;
-  const sb=getSB();
-  const {data:rp}=await sb.from('room_players').select('*').eq('room_id',mpRoomId).order('seat');
-  if(!rp||!rp.length)return;
-  document.getElementById('lobbyStartBtn').disabled=true;
-  document.getElementById('lobbyStartBtn').textContent='Starting...';
-
-  houseRuleKnockLow=document.getElementById('ruleKnockLow')?.checked??true;
-  houseRuleTripleAces=document.getElementById('ruleTripleAces')?.checked??true;
-  houseRuleFreeRide=document.getElementById('ruleFreeRide')?.checked??true;
-
-  const totalSeats=Math.max(rp.length,2);
-  numPlayers=totalSeats; roundCount=0;
-  players=Array.from({length:totalSeats},(_,i)=>{
-    const h=rp.find(p=>p.seat===i);
-    if(h)return{name:h.display_name,isHuman:true,playerId:h.player_id,lives:maxLives(),hand:[]};
-    return{name:PLAYER_NAMES[i]||'Bot '+(i+1),isHuman:false,playerId:null,lives:maxLives(),hand:[]};
-  });
-  dealerIdx=totalSeats-1; isMultiplayer=true;
-  await sb.from('rooms').update({status:'playing'}).eq('id',mpRoomId);
-  showMpGameScreen();
-  startNewRound();
-  setTimeout(pushState,300);
-}
-
-function showMpGameScreen(){
-  document.getElementById('lobbyScreen').style.display='none';
-  document.getElementById('setupScreen').style.display='none';
-  document.getElementById('gameScreen').style.display='block';
-  document.getElementById('controlDock').removeAttribute('hidden');
-  document.getElementById('chatLog').innerHTML='';
-  setTimeout(syncDockHeight,0);
-}
-
-// ── STATE PUSH ──
-async function pushState(){
-  if(!isMultiplayer)return;
-  const local=captureState();
-  const canonical=mpCanonicalSeat===0?local:unrotateState(local,mpCanonicalSeat,local.players.length);
-  try{
-    await getSB().from('game_state').upsert({room_id:mpRoomId,state:{...canonical,pushedBy:mpPlayerId},updated_at:new Date().toISOString()},{onConflict:'room_id'});
-  }catch(e){console.error('pushState:',e);}
-}
-
-// ── STATE RECEIVE ──
-function onStateReceived(canonical){
-  if(!isMultiplayer)return;
-  if(canonical.pushedBy===mpPlayerId)return;  // our own echo
-  const local=mpCanonicalSeat===0?canonical:rotateState(canonical,mpCanonicalSeat,canonical.players?.length||2);
-  applyState(local);
-  if(document.getElementById('lobbyScreen').style.display!=='none'){showMpGameScreen();}
-  renderAll();
-  updateTurnUI();
-}
-
-// ── CAPTURE / APPLY ──
-function captureState(){
-  return{v:1,deck:[...deck],discardPile:[...discardPile],
-    players:players.map(p=>({...p,hand:[...p.hand]})),
-    activeIdx,turnPhase,knockedByIdx,mustDrawIdx,lastTurnQueue:[...lastTurnQueue],
-    isFirstAction,gameActive,roundCount,dealerIdx,wasKnockedOffDeal,
-    houseRuleKnockLow,houseRuleTripleAces,houseRuleFreeRide,
-    inferredSuits:{...inferredSuits},lastDrawSource,lastDrawnIdx};
-}
-function applyState(s){
-  deck=s.deck??[];discardPile=s.discardPile??[];
-  players=(s.players??[]).map(p=>({...p,hand:[...(p.hand||[])]}));
-  activeIdx=s.activeIdx??0;turnPhase=s.turnPhase??'draw';
-  knockedByIdx=s.knockedByIdx??null;mustDrawIdx=s.mustDrawIdx??-1;
-  lastTurnQueue=s.lastTurnQueue??[];isFirstAction=s.isFirstAction??true;
-  gameActive=s.gameActive??false;roundCount=s.roundCount??0;dealerIdx=s.dealerIdx??0;
-  wasKnockedOffDeal=s.wasKnockedOffDeal??false;
-  houseRuleKnockLow=s.houseRuleKnockLow??true;houseRuleTripleAces=s.houseRuleTripleAces??true;houseRuleFreeRide=s.houseRuleFreeRide??true;
-  inferredSuits=s.inferredSuits??{};lastDrawSource=s.lastDrawSource??null;lastDrawnIdx=s.lastDrawnIdx??-1;
-}
-
-// ── STATE ROTATION ──
-// rotateState: shift array so seat `offset` becomes index 0
-function rotateState(s,offset,n){
-  if(!offset||!n)return s;
-  const rot=i=>(i===null||i<0)?i:(i-offset+n)%n;
-  const newInferred={};
-  for(const [k,v] of Object.entries(s.inferredSuits||{}))newInferred[rot(+k)]=v;
-  return{...s,
-    players:[...s.players.slice(offset),...s.players.slice(0,offset)],
-    activeIdx:rot(s.activeIdx),
-    knockedByIdx:s.knockedByIdx!=null?rot(s.knockedByIdx):null,
-    dealerIdx:rot(s.dealerIdx),
-    mustDrawIdx:s.mustDrawIdx>=0?rot(s.mustDrawIdx):s.mustDrawIdx,
-    lastTurnQueue:(s.lastTurnQueue||[]).map(rot),
-    inferredSuits:newInferred};
-}
-// unrotateState: reverse rotation (local → canonical)
-function unrotateState(s,offset,n){
-  if(!offset||!n)return s;
-  const unrot=i=>(i===null||i<0)?i:(i+offset)%n;
-  const newInferred={};
-  for(const [k,v] of Object.entries(s.inferredSuits||{}))newInferred[unrot(+k)]=v;
-  return{...s,
-    players:[...s.players.slice(n-offset),...s.players.slice(0,n-offset)],
-    activeIdx:unrot(s.activeIdx),
-    knockedByIdx:s.knockedByIdx!=null?unrot(s.knockedByIdx):null,
-    dealerIdx:unrot(s.dealerIdx),
-    mustDrawIdx:s.mustDrawIdx>=0?unrot(s.mustDrawIdx):s.mustDrawIdx,
-    lastTurnQueue:(s.lastTurnQueue||[]).map(unrot),
-    inferredSuits:newInferred};
-}
-
-
-// ── PLAY AGAIN (same room, reset lives) ──
-async function mpPlayAgain(){
-  if(!mpIsHost||!isMultiplayer)return;
-  // Reset all players' lives; keep seats (bots stay, humans stay)
-  players.forEach(p=>{p.lives=maxLives();p.hand=[];});
-  roundCount=0;
-  dealerIdx=nextActive(dealerIdx%players.length); // rotate dealer for fairness
-  // Push reset state so non-hosts transition automatically
-  dismissPilesOverlay();
-  startNewRound();
-  setTimeout(pushState,400);
-}
-
 </script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -1986,6 +1748,245 @@ if(window.ResizeObserver){
   new ResizeObserver(syncDockHeight).observe(document.getElementById('controlDock'));
 }
 window.addEventListener('resize',syncDockHeight);
+// ════════════════════════════════════════════════════════════════
+// MULTIPLAYER  —  Supabase Realtime
+// ════════════════════════════════════════════════════════════════
+const MP_URL  = 'https://hfxwmfpnkburzzhnmuje.supabase.co';
+const MP_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhmeHdtZnBua2J1cnp6aG5tdWplIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY3OTU3MDIsImV4cCI6MjA5MjM3MTcwMn0.MWLjw7v2wzmK1mLJ64ZgmK2ClCCz9XXfnAzuzjnbPNE';
+
+let _sb=null;
+function getSB(){if(!_sb)_sb=window.supabase.createClient(MP_URL,MP_KEY);return _sb;}
+
+// ── Multiplayer state ──
+let isMultiplayer=false;
+let mpRoomId=null,mpRoomCode=null;
+let mpPlayerId=(()=>{let id=sessionStorage.getItem('mpPid');if(!id){id=crypto.randomUUID();sessionStorage.setItem('mpPid',id);}return id;})();
+let mpPlayerName='';
+let mpCanonicalSeat=0;   // this player's seat in un-rotated (host) order
+let mpIsHost=false;
+let mpChannel=null;
+let mpDidAct=false;      // true after local player/host-AI completes a turn action → triggers push
+
+// ── SCREEN MANAGEMENT ──
+function showOnlineMenu(){
+  document.getElementById('setupScreen').style.display='none';
+  document.getElementById('lobbyScreen').style.display='';
+  document.getElementById('lobbyEntry').style.display='';
+  document.getElementById('lobbyWaiting').style.display='none';
+  document.getElementById('mpStatusMsg').textContent='';
+  setTimeout(()=>document.getElementById('mpNameInput').focus(),100);
+}
+function showSetupFromLobby(){
+  document.getElementById('lobbyScreen').style.display='none';
+  document.getElementById('setupScreen').style.display='';
+}
+function showMpTab(tab){
+  document.getElementById('mpCreateSection').style.display=tab==='create'?'':'none';
+  document.getElementById('mpJoinSection').style.display=tab==='join'?'':'none';
+  document.getElementById('tabCreate').classList.toggle('active',tab==='create');
+  document.getElementById('tabJoin').classList.toggle('active',tab==='join');
+}
+function mpSetStatus(msg){document.getElementById('mpStatusMsg').textContent=msg;}
+function leaveLobby(){
+  if(mpChannel){getSB().removeChannel(mpChannel);mpChannel=null;}
+  mpRoomId=null;mpRoomCode=null;mpIsHost=false;isMultiplayer=false;
+  showSetupFromLobby();
+}
+
+// ── CREATE ROOM ──
+async function mpCreateRoom(){
+  const name=document.getElementById('mpNameInput').value.trim();
+  if(!name){mpSetStatus('Enter your name first!');return;}
+  mpPlayerName=name; mpIsHost=true; mpCanonicalSeat=0;
+  const btn=document.getElementById('mpCreateBtn');btn.disabled=true;btn.textContent='Creating...';
+  const sb=getSB();
+  // Find unique 4-digit code
+  let code,tries=0;
+  while(tries++<20){
+    code=String(1000+Math.floor(Math.random()*9000));
+    const {data}=await sb.from('rooms').select('id').eq('code',code).eq('status','waiting').maybeSingle();
+    if(!data)break;
+  }
+  const {data:room,error}=await sb.from('rooms').insert({code,host_id:mpPlayerId,status:'waiting',max_players:6}).select().single();
+  btn.disabled=false;btn.textContent='Create Room 🎮';
+  if(error){mpSetStatus('Could not create room — try again.');console.error(error);return;}
+  mpRoomId=room.id; mpRoomCode=code;
+  await sb.from('room_players').insert({room_id:mpRoomId,player_id:mpPlayerId,display_name:name,seat:0,is_bot:false});
+  showWaitingRoom(); subscribeRoom();
+}
+
+// ── JOIN ROOM ──
+async function mpJoinRoom(){
+  const name=document.getElementById('mpNameInput').value.trim();
+  const code=document.getElementById('mpCodeInput').value.trim().replace(/\D/g,'');
+  if(!name){mpSetStatus('Enter your name!');return;}
+  if(code.length!==4){mpSetStatus('Enter the 4-digit room code!');return;}
+  mpPlayerName=name; mpIsHost=false;
+  const btn=document.getElementById('mpJoinBtn');btn.disabled=true;btn.textContent='Joining...';
+  const sb=getSB();
+  const {data:room,error}=await sb.from('rooms').select('*').eq('code',code).eq('status','waiting').maybeSingle();
+  btn.disabled=false;btn.textContent='Join Room →';
+  if(error||!room){mpSetStatus('Room not found or game already started!');return;}
+  mpRoomId=room.id; mpRoomCode=code;
+  const {data:existing}=await sb.from('room_players').select('seat').eq('room_id',mpRoomId);
+  const taken=new Set((existing||[]).map(p=>p.seat));
+  let seat=0; while(taken.has(seat))seat++;
+  mpCanonicalSeat=seat;
+  const {error:joinErr}=await sb.from('room_players').insert({room_id:mpRoomId,player_id:mpPlayerId,display_name:name,seat,is_bot:false});
+  if(joinErr){mpSetStatus('Could not join — room may be full.');return;}
+  showWaitingRoom(); subscribeRoom();
+}
+
+// ── WAITING ROOM ──
+function showWaitingRoom(){
+  document.getElementById('lobbyEntry').style.display='none';
+  document.getElementById('lobbyWaiting').style.display='';
+  document.getElementById('lobbyRoomCode').textContent=mpRoomCode;
+  document.getElementById('lobbyStartBtn').style.display=mpIsHost?'':'none';
+  refreshLobbyList();
+}
+async function refreshLobbyList(){
+  const sb=getSB();
+  const {data:rp}=await sb.from('room_players').select('*').eq('room_id',mpRoomId).order('seat');
+  if(!rp)return;
+  document.getElementById('lobbyPlayerList').innerHTML=rp.map(p=>`<div class="lobby-player-row">${p.is_bot?'🤖':p.player_id===mpPlayerId?'👤':'🎮'} <span>${p.display_name}</span>${p.seat===0?'<span class="lobby-host-badge">HOST</span>':''}</div>`).join('');
+  document.getElementById('lobbyPlayerCount').textContent=rp.length+' player'+(rp.length!==1?'s':'')+' in room';
+}
+
+// ── REALTIME SUBSCRIPTION ──
+function subscribeRoom(){
+  const sb=getSB();
+  mpChannel=sb.channel('room_'+mpRoomId)
+    .on('postgres_changes',{event:'*',schema:'public',table:'room_players',filter:'room_id=eq.'+mpRoomId},()=>{refreshLobbyList();})
+    .on('postgres_changes',{event:'*',schema:'public',table:'game_state',filter:'room_id=eq.'+mpRoomId},(payload)=>{if(payload.new&&payload.new.state)onStateReceived(payload.new.state);})
+    .subscribe();
+}
+
+// ── START ONLINE GAME (host only) ──
+async function mpStartGame(){
+  if(!mpIsHost)return;
+  const sb=getSB();
+  const {data:rp}=await sb.from('room_players').select('*').eq('room_id',mpRoomId).order('seat');
+  if(!rp||!rp.length)return;
+  document.getElementById('lobbyStartBtn').disabled=true;
+  document.getElementById('lobbyStartBtn').textContent='Starting...';
+
+  houseRuleKnockLow=document.getElementById('ruleKnockLow')?.checked??true;
+  houseRuleTripleAces=document.getElementById('ruleTripleAces')?.checked??true;
+  houseRuleFreeRide=document.getElementById('ruleFreeRide')?.checked??true;
+
+  const totalSeats=Math.max(rp.length,2);
+  numPlayers=totalSeats; roundCount=0;
+  players=Array.from({length:totalSeats},(_,i)=>{
+    const h=rp.find(p=>p.seat===i);
+    if(h)return{name:h.display_name,isHuman:true,playerId:h.player_id,lives:maxLives(),hand:[]};
+    return{name:PLAYER_NAMES[i]||'Bot '+(i+1),isHuman:false,playerId:null,lives:maxLives(),hand:[]};
+  });
+  dealerIdx=totalSeats-1; isMultiplayer=true;
+  await sb.from('rooms').update({status:'playing'}).eq('id',mpRoomId);
+  showMpGameScreen();
+  startNewRound();
+  setTimeout(pushState,300);
+}
+
+function showMpGameScreen(){
+  document.getElementById('lobbyScreen').style.display='none';
+  document.getElementById('setupScreen').style.display='none';
+  document.getElementById('gameScreen').style.display='block';
+  document.getElementById('controlDock').removeAttribute('hidden');
+  document.getElementById('chatLog').innerHTML='';
+  setTimeout(syncDockHeight,0);
+}
+
+// ── STATE PUSH ──
+async function pushState(){
+  if(!isMultiplayer)return;
+  const local=captureState();
+  const canonical=mpCanonicalSeat===0?local:unrotateState(local,mpCanonicalSeat,local.players.length);
+  try{
+    await getSB().from('game_state').upsert({room_id:mpRoomId,state:{...canonical,pushedBy:mpPlayerId},updated_at:new Date().toISOString()},{onConflict:'room_id'});
+  }catch(e){console.error('pushState:',e);}
+}
+
+// ── STATE RECEIVE ──
+function onStateReceived(canonical){
+  if(!isMultiplayer)return;
+  if(canonical.pushedBy===mpPlayerId)return;  // our own echo
+  const local=mpCanonicalSeat===0?canonical:rotateState(canonical,mpCanonicalSeat,canonical.players?.length||2);
+  applyState(local);
+  if(document.getElementById('lobbyScreen').style.display!=='none'){showMpGameScreen();}
+  renderAll();
+  updateTurnUI();
+}
+
+// ── CAPTURE / APPLY ──
+function captureState(){
+  return{v:1,deck:[...deck],discardPile:[...discardPile],
+    players:players.map(p=>({...p,hand:[...p.hand]})),
+    activeIdx,turnPhase,knockedByIdx,mustDrawIdx,lastTurnQueue:[...lastTurnQueue],
+    isFirstAction,gameActive,roundCount,dealerIdx,wasKnockedOffDeal,
+    houseRuleKnockLow,houseRuleTripleAces,houseRuleFreeRide,
+    inferredSuits:{...inferredSuits},lastDrawSource,lastDrawnIdx};
+}
+function applyState(s){
+  deck=s.deck??[];discardPile=s.discardPile??[];
+  players=(s.players??[]).map(p=>({...p,hand:[...(p.hand||[])]}));
+  activeIdx=s.activeIdx??0;turnPhase=s.turnPhase??'draw';
+  knockedByIdx=s.knockedByIdx??null;mustDrawIdx=s.mustDrawIdx??-1;
+  lastTurnQueue=s.lastTurnQueue??[];isFirstAction=s.isFirstAction??true;
+  gameActive=s.gameActive??false;roundCount=s.roundCount??0;dealerIdx=s.dealerIdx??0;
+  wasKnockedOffDeal=s.wasKnockedOffDeal??false;
+  houseRuleKnockLow=s.houseRuleKnockLow??true;houseRuleTripleAces=s.houseRuleTripleAces??true;houseRuleFreeRide=s.houseRuleFreeRide??true;
+  inferredSuits=s.inferredSuits??{};lastDrawSource=s.lastDrawSource??null;lastDrawnIdx=s.lastDrawnIdx??-1;
+}
+
+// ── STATE ROTATION ──
+// rotateState: shift array so seat `offset` becomes index 0
+function rotateState(s,offset,n){
+  if(!offset||!n)return s;
+  const rot=i=>(i===null||i<0)?i:(i-offset+n)%n;
+  const newInferred={};
+  for(const [k,v] of Object.entries(s.inferredSuits||{}))newInferred[rot(+k)]=v;
+  return{...s,
+    players:[...s.players.slice(offset),...s.players.slice(0,offset)],
+    activeIdx:rot(s.activeIdx),
+    knockedByIdx:s.knockedByIdx!=null?rot(s.knockedByIdx):null,
+    dealerIdx:rot(s.dealerIdx),
+    mustDrawIdx:s.mustDrawIdx>=0?rot(s.mustDrawIdx):s.mustDrawIdx,
+    lastTurnQueue:(s.lastTurnQueue||[]).map(rot),
+    inferredSuits:newInferred};
+}
+// unrotateState: reverse rotation (local → canonical)
+function unrotateState(s,offset,n){
+  if(!offset||!n)return s;
+  const unrot=i=>(i===null||i<0)?i:(i+offset)%n;
+  const newInferred={};
+  for(const [k,v] of Object.entries(s.inferredSuits||{}))newInferred[unrot(+k)]=v;
+  return{...s,
+    players:[...s.players.slice(n-offset),...s.players.slice(0,n-offset)],
+    activeIdx:unrot(s.activeIdx),
+    knockedByIdx:s.knockedByIdx!=null?unrot(s.knockedByIdx):null,
+    dealerIdx:unrot(s.dealerIdx),
+    mustDrawIdx:s.mustDrawIdx>=0?unrot(s.mustDrawIdx):s.mustDrawIdx,
+    lastTurnQueue:(s.lastTurnQueue||[]).map(unrot),
+    inferredSuits:newInferred};
+}
+
+
+// ── PLAY AGAIN (same room, reset lives) ──
+async function mpPlayAgain(){
+  if(!mpIsHost||!isMultiplayer)return;
+  // Reset all players' lives; keep seats (bots stay, humans stay)
+  players.forEach(p=>{p.lives=maxLives();p.hand=[];});
+  roundCount=0;
+  dealerIdx=nextActive(dealerIdx%players.length); // rotate dealer for fairness
+  // Push reset state so non-hosts transition automatically
+  dismissPilesOverlay();
+  startNewRound();
+  setTimeout(pushState,400);
+}
+
+
 </script>
 </body>
 </html>
