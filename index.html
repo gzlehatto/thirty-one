@@ -1810,7 +1810,7 @@ async function mpCreateRoom(){
   const {data:room,error}=await sb.from('rooms').insert({code,host_id:mpPlayerId,status:'waiting',max_players:6}).select().single();
   btn.disabled=false;btn.textContent='Create Room 🎮';
   if(error){mpSetStatus('Could not create room — try again.');console.error(error);return;}
-  mpRoomId=room.id; mpRoomCode=code;
+  mpRoomId=room.id; mpRoomCode=code; isMultiplayer=true;
   await sb.from('room_players').insert({room_id:mpRoomId,player_id:mpPlayerId,display_name:name,seat:0,is_bot:false});
   showWaitingRoom(); subscribeRoom();
 }
@@ -1827,7 +1827,7 @@ async function mpJoinRoom(){
   const {data:room,error}=await sb.from('rooms').select('*').eq('code',code).eq('status','waiting').maybeSingle();
   btn.disabled=false;btn.textContent='Join Room →';
   if(error||!room){mpSetStatus('Room not found or game already started!');return;}
-  mpRoomId=room.id; mpRoomCode=code;
+  mpRoomId=room.id; mpRoomCode=code; isMultiplayer=true;
   const {data:existing}=await sb.from('room_players').select('seat').eq('room_id',mpRoomId);
   const taken=new Set((existing||[]).map(p=>p.seat));
   let seat=0; while(taken.has(seat))seat++;
