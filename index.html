@@ -1206,7 +1206,6 @@ function worstCardIdxAware(hand,playerIdx){
 }
 
 function endRound(){
-  if(isMultiplayer&&mpIsHost)setTimeout(pushState,80);
   gameActive=false;setKnockBtn(false);setPileInteractive(false);
   setTurnBanner('hidden','');clearKnockedBadges();dismissPilesOverlay();
   document.querySelectorAll('.zone,.opp-mini').forEach(z=>z.classList.remove('active-you','active-them'));
@@ -1989,6 +1988,8 @@ function onStateReceived(canonical){
     if(local.roundSummary){
       const rs=local.roundSummary;
       showResult(rs.title,rs.detail,rs.scoresLine,rs.matchOver);
+    } else {
+      setStatus('Round over — waiting for dealer to continue...');
     }
     return;
   }
