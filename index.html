@@ -841,6 +841,7 @@ function showSetup(){
 
 function startNewRound(){
   document.getElementById('readyBtn').style.display='none';
+  roundSummary=null;
   roundCount++;
   suitTrackingNext={'♠':0,'♥':0,'♦':0,'♣':0};
   suitDrawn={'♠':0,'♥':0,'♦':0,'♣':0};
@@ -1602,7 +1603,7 @@ function setKnockedBadge(pi){
 }
 function clearKnockedBadges(){document.querySelectorAll('.chip-knocked').forEach(b=>b.remove());}
 
-let resultMatchOver=false;
+let resultMatchOver=false,roundSummary=null;
 function launchConfetti(){
   const canvas=document.getElementById('confettiCanvas');
   const ctx=canvas.getContext('2d');
@@ -1644,8 +1645,20 @@ function koLine(scoreMap){
   const names=ko.map(x=>x.player.isHuman?'YOU':x.player.name).join(' & ');
   return'\n'+(ko.length>1?names+' ARE OUT!':names+' IS OUT!');
 }
+// Returns true if the local player is the one who should trigger the next deal.
+// That's the next dealer if they're a human MP player, otherwise the host.
+function mpIsInControl(){
+  if(!isMultiplayer)return true;
+  const ndi=nextActive(dealerIdx);
+  const nd=players[ndi];
+  if(!nd||!nd.playerId)return mpIsHost; // bot dealer → host controls
+  return nd.playerId===mpPlayerId;
+}
+
 function showResult(title,detail,scoresLine,matchOver){
   resultMatchOver=matchOver;
+  // Store summary so non-hosts can render the same overlay
+  roundSummary={title,detail,scoresLine,matchOver};
   if(isMultiplayer&&mpIsHost)setTimeout(pushState,60);
   const po=document.getElementById('pilesOverlay');
   const tc=document.getElementById('tableCenter');
@@ -1658,8 +1671,15 @@ function showResult(title,detail,scoresLine,matchOver){
     } else {
       sub.innerHTML='<div style="opacity:0.5;font-size:0.85rem;margin-top:14px;">Waiting for host to start again...</div><br><span class="po-tap" style="opacity:0.25">or tap anywhere to exit</span>';
     }
+  } else if(!isMultiplayer||mpIsInControl()){
+    const ndi=nextActive(dealerIdx);const nd=players[ndi];
+    const dealerLabel=isMultiplayer&&nd&&!nd.isHuman===false&&nd.playerId===mpPlayerId?'You deal next — ':
+                      isMultiplayer&&nd?nd.name+' deals next — ':'';
+    sub.innerHTML='<span class="po-tap">'+(isMultiplayer?dealerLabel:'')+'Tap to continue</span>';
   } else {
-    sub.innerHTML='<span class="po-tap">Tap to continue</span>';
+    const ndi=nextActive(dealerIdx);const nd=players[ndi];
+    const dealerName=nd?nd.name:'the dealer';
+    sub.innerHTML='<div style="opacity:0.6;font-size:0.85rem;margin-top:14px;">Waiting for '+dealerName+' to deal...</div>';
   }
   tc.classList.remove('tc-draw-deck','tc-draw-discard','tc-discarded');
   clearTimeout(po._dt);
@@ -1671,8 +1691,13 @@ function closeRoundResult(){
   document.getElementById('poSub').innerHTML='';
   const mo=resultMatchOver;resultMatchOver=false;
   if(mo){if(isMultiplayer)leaveLobby();else showSetup();return;}
-  if(isMultiplayer&&!mpIsHost){setStatus("Waiting for host to deal next round...");dismissPilesOverlay();return;}
+  if(isMultiplayer&&!mpIsInControl()){
+    // Not our turn to deal — just close overlay and wait for dealer's push
+    setStatus('Waiting for '+(players[nextActive(dealerIdx)]?.name||'dealer')+' to deal...');
+    return;
+  }
   dealerIdx=nextActive(dealerIdx);if(activePlayers().length<=1){showSetup();return;}startNewRound();
+  if(isMultiplayer)setTimeout(pushState,300);
 }
 
 function showReadyScreen(){
@@ -1956,12 +1981,15 @@ function onStateReceived(canonical){
     document.getElementById('poSub').innerHTML='';
     renderAll();updateTurnUI();return;
   }
-  // Round just ended — show revealed hands and wait message
-  if(!local.gameActive&&wasActive&&!mpIsHost){
+  // Round just ended — show showdown overlay (same as host sees)
+  if(!local.gameActive&&wasActive){
     renderAll(true);renderAllLives();
     setTurnBanner('hidden','');
-    setStatus('Round over! Waiting for host to deal next round...');
     setPileInteractive(false);setKnockBtn(false);
+    if(local.roundSummary){
+      const rs=local.roundSummary;
+      showResult(rs.title,rs.detail,rs.scoresLine,rs.matchOver);
+    }
     return;
   }
   renderAll();
@@ -1975,7 +2003,8 @@ function captureState(){
     activeIdx,turnPhase,knockedByIdx,mustDrawIdx,lastTurnQueue:[...lastTurnQueue],
     isFirstAction,gameActive,roundCount,dealerIdx,wasKnockedOffDeal,
     houseRuleKnockLow,houseRuleTripleAces,houseRuleFreeRide,
-    inferredSuits:{...inferredSuits},lastDrawSource,lastDrawnIdx};
+    inferredSuits:{...inferredSuits},lastDrawSource,lastDrawnIdx,
+    roundSummary:roundSummary??null};
 }
 function applyState(s){
   deck=s.deck??[];discardPile=s.discardPile??[];
@@ -1988,6 +2017,7 @@ function applyState(s){
   wasKnockedOffDeal=s.wasKnockedOffDeal??false;
   houseRuleKnockLow=s.houseRuleKnockLow??true;houseRuleTripleAces=s.houseRuleTripleAces??true;houseRuleFreeRide=s.houseRuleFreeRide??true;
   inferredSuits=s.inferredSuits??{};lastDrawSource=s.lastDrawSource??null;lastDrawnIdx=s.lastDrawnIdx??-1;
+  roundSummary=s.roundSummary??null;
 }
 
 // ── STATE ROTATION ──
