@@ -1049,7 +1049,7 @@ function afterTurnActions(){
     if(!p.isHuman)SFX.win31();showThirtyOneSplash(activeIdx);setTimeout(endRound,1800);return;
   }
   isFirstAction=false;
-  if(knockedByIdx!==null){if(lastTurnQueue.length>0){activeIdx=lastTurnQueue.shift();if(isMultiplayer&&mpDidAct){mpDidAct=false;setTimeout(pushState,50);}updateTurnUI();}else{if(isMultiplayer&&mpDidAct){mpDidAct=false;setTimeout(pushState,50);}endRound();}return;}
+  if(knockedByIdx!==null){if(lastTurnQueue.length>0){activeIdx=lastTurnQueue.shift();if(isMultiplayer&&mpDidAct){mpDidAct=false;setTimeout(pushState,50);}updateTurnUI();}else{mpDidAct=false;endRound();}return;}
   activeIdx=nextActive(activeIdx);if(isMultiplayer&&mpDidAct){mpDidAct=false;setTimeout(pushState,50);}updateTurnUI();
 }
 
