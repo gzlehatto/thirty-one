@@ -6,6 +6,246 @@
   <title>Thirty-One Card Game</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@700;900&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2">
+// ════════════════════════════════════════════════════════════════
+// MULTIPLAYER  —  Supabase Realtime
+// ════════════════════════════════════════════════════════════════
+const MP_URL  = 'https://hfxwmfpnkburzzhnmuje.supabase.co';
+const MP_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhmeHdtZnBua2J1cnp6aG5tdWplIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY3OTU3MDIsImV4cCI6MjA5MjM3MTcwMn0.MWLjw7v2wzmK1mLJ64ZgmK2ClCCz9XXfnAzuzjnbPNE';
+
+let _sb=null;
+function getSB(){if(!_sb)_sb=window.supabase.createClient(MP_URL,MP_KEY);return _sb;}
+
+// ── Multiplayer state ──
+let isMultiplayer=false;
+let mpRoomId=null,mpRoomCode=null;
+let mpPlayerId=(()=>{let id=sessionStorage.getItem('mpPid');if(!id){id=crypto.randomUUID();sessionStorage.setItem('mpPid',id);}return id;})();
+let mpPlayerName='';
+let mpCanonicalSeat=0;   // this player's seat in un-rotated (host) order
+let mpIsHost=false;
+let mpChannel=null;
+let mpDidAct=false;      // true after local player/host-AI completes a turn action → triggers push
+
+// ── SCREEN MANAGEMENT ──
+function showOnlineMenu(){
+  document.getElementById('setupScreen').style.display='none';
+  document.getElementById('lobbyScreen').style.display='';
+  document.getElementById('lobbyEntry').style.display='';
+  document.getElementById('lobbyWaiting').style.display='none';
+  document.getElementById('mpStatusMsg').textContent='';
+  setTimeout(()=>document.getElementById('mpNameInput').focus(),100);
+}
+function showSetupFromLobby(){
+  document.getElementById('lobbyScreen').style.display='none';
+  document.getElementById('setupScreen').style.display='';
+}
+function showMpTab(tab){
+  document.getElementById('mpCreateSection').style.display=tab==='create'?'':'none';
+  document.getElementById('mpJoinSection').style.display=tab==='join'?'':'none';
+  document.getElementById('tabCreate').classList.toggle('active',tab==='create');
+  document.getElementById('tabJoin').classList.toggle('active',tab==='join');
+}
+function mpSetStatus(msg){document.getElementById('mpStatusMsg').textContent=msg;}
+function leaveLobby(){
+  if(mpChannel){getSB().removeChannel(mpChannel);mpChannel=null;}
+  mpRoomId=null;mpRoomCode=null;mpIsHost=false;isMultiplayer=false;
+  showSetupFromLobby();
+}
+
+// ── CREATE ROOM ──
+async function mpCreateRoom(){
+  const name=document.getElementById('mpNameInput').value.trim();
+  if(!name){mpSetStatus('Enter your name first!');return;}
+  mpPlayerName=name; mpIsHost=true; mpCanonicalSeat=0;
+  const btn=document.getElementById('mpCreateBtn');btn.disabled=true;btn.textContent='Creating...';
+  const sb=getSB();
+  // Find unique 4-digit code
+  let code,tries=0;
+  while(tries++<20){
+    code=String(1000+Math.floor(Math.random()*9000));
+    const {data}=await sb.from('rooms').select('id').eq('code',code).eq('status','waiting').maybeSingle();
+    if(!data)break;
+  }
+  const {data:room,error}=await sb.from('rooms').insert({code,host_id:mpPlayerId,status:'waiting',max_players:6}).select().single();
+  btn.disabled=false;btn.textContent='Create Room 🎮';
+  if(error){mpSetStatus('Could not create room — try again.');console.error(error);return;}
+  mpRoomId=room.id; mpRoomCode=code;
+  await sb.from('room_players').insert({room_id:mpRoomId,player_id:mpPlayerId,display_name:name,seat:0,is_bot:false});
+  showWaitingRoom(); subscribeRoom();
+}
+
+// ── JOIN ROOM ──
+async function mpJoinRoom(){
+  const name=document.getElementById('mpNameInput').value.trim();
+  const code=document.getElementById('mpCodeInput').value.trim().replace(/\D/g,'');
+  if(!name){mpSetStatus('Enter your name!');return;}
+  if(code.length!==4){mpSetStatus('Enter the 4-digit room code!');return;}
+  mpPlayerName=name; mpIsHost=false;
+  const btn=document.getElementById('mpJoinBtn');btn.disabled=true;btn.textContent='Joining...';
+  const sb=getSB();
+  const {data:room,error}=await sb.from('rooms').select('*').eq('code',code).eq('status','waiting').maybeSingle();
+  btn.disabled=false;btn.textContent='Join Room →';
+  if(error||!room){mpSetStatus('Room not found or game already started!');return;}
+  mpRoomId=room.id; mpRoomCode=code;
+  const {data:existing}=await sb.from('room_players').select('seat').eq('room_id',mpRoomId);
+  const taken=new Set((existing||[]).map(p=>p.seat));
+  let seat=0; while(taken.has(seat))seat++;
+  mpCanonicalSeat=seat;
+  const {error:joinErr}=await sb.from('room_players').insert({room_id:mpRoomId,player_id:mpPlayerId,display_name:name,seat,is_bot:false});
+  if(joinErr){mpSetStatus('Could not join — room may be full.');return;}
+  showWaitingRoom(); subscribeRoom();
+}
+
+// ── WAITING ROOM ──
+function showWaitingRoom(){
+  document.getElementById('lobbyEntry').style.display='none';
+  document.getElementById('lobbyWaiting').style.display='';
+  document.getElementById('lobbyRoomCode').textContent=mpRoomCode;
+  document.getElementById('lobbyStartBtn').style.display=mpIsHost?'':'none';
+  refreshLobbyList();
+}
+async function refreshLobbyList(){
+  const sb=getSB();
+  const {data:rp}=await sb.from('room_players').select('*').eq('room_id',mpRoomId).order('seat');
+  if(!rp)return;
+  document.getElementById('lobbyPlayerList').innerHTML=rp.map(p=>`<div class="lobby-player-row">${p.is_bot?'🤖':p.player_id===mpPlayerId?'👤':'🎮'} <span>${p.display_name}</span>${p.seat===0?'<span class="lobby-host-badge">HOST</span>':''}</div>`).join('');
+  document.getElementById('lobbyPlayerCount').textContent=rp.length+' player'+(rp.length!==1?'s':'')+' in room';
+}
+
+// ── REALTIME SUBSCRIPTION ──
+function subscribeRoom(){
+  const sb=getSB();
+  mpChannel=sb.channel('room_'+mpRoomId)
+    .on('postgres_changes',{event:'*',schema:'public',table:'room_players',filter:'room_id=eq.'+mpRoomId},()=>{refreshLobbyList();})
+    .on('postgres_changes',{event:'*',schema:'public',table:'game_state',filter:'room_id=eq.'+mpRoomId},(payload)=>{if(payload.new&&payload.new.state)onStateReceived(payload.new.state);})
+    .subscribe();
+}
+
+// ── START ONLINE GAME (host only) ──
+async function mpStartGame(){
+  if(!mpIsHost)return;
+  const sb=getSB();
+  const {data:rp}=await sb.from('room_players').select('*').eq('room_id',mpRoomId).order('seat');
+  if(!rp||!rp.length)return;
+  document.getElementById('lobbyStartBtn').disabled=true;
+  document.getElementById('lobbyStartBtn').textContent='Starting...';
+
+  houseRuleKnockLow=document.getElementById('ruleKnockLow')?.checked??true;
+  houseRuleTripleAces=document.getElementById('ruleTripleAces')?.checked??true;
+  houseRuleFreeRide=document.getElementById('ruleFreeRide')?.checked??true;
+
+  const totalSeats=Math.max(rp.length,2);
+  numPlayers=totalSeats; roundCount=0;
+  players=Array.from({length:totalSeats},(_,i)=>{
+    const h=rp.find(p=>p.seat===i);
+    if(h)return{name:h.display_name,isHuman:true,playerId:h.player_id,lives:maxLives(),hand:[]};
+    return{name:PLAYER_NAMES[i]||'Bot '+(i+1),isHuman:false,playerId:null,lives:maxLives(),hand:[]};
+  });
+  dealerIdx=totalSeats-1; isMultiplayer=true;
+  await sb.from('rooms').update({status:'playing'}).eq('id',mpRoomId);
+  showMpGameScreen();
+  startNewRound();
+  setTimeout(pushState,300);
+}
+
+function showMpGameScreen(){
+  document.getElementById('lobbyScreen').style.display='none';
+  document.getElementById('setupScreen').style.display='none';
+  document.getElementById('gameScreen').style.display='block';
+  document.getElementById('controlDock').removeAttribute('hidden');
+  document.getElementById('chatLog').innerHTML='';
+  setTimeout(syncDockHeight,0);
+}
+
+// ── STATE PUSH ──
+async function pushState(){
+  if(!isMultiplayer)return;
+  const local=captureState();
+  const canonical=mpCanonicalSeat===0?local:unrotateState(local,mpCanonicalSeat,local.players.length);
+  try{
+    await getSB().from('game_state').upsert({room_id:mpRoomId,state:{...canonical,pushedBy:mpPlayerId},updated_at:new Date().toISOString()},{onConflict:'room_id'});
+  }catch(e){console.error('pushState:',e);}
+}
+
+// ── STATE RECEIVE ──
+function onStateReceived(canonical){
+  if(!isMultiplayer)return;
+  if(canonical.pushedBy===mpPlayerId)return;  // our own echo
+  const local=mpCanonicalSeat===0?canonical:rotateState(canonical,mpCanonicalSeat,canonical.players?.length||2);
+  applyState(local);
+  if(document.getElementById('lobbyScreen').style.display!=='none'){showMpGameScreen();}
+  renderAll();
+  updateTurnUI();
+}
+
+// ── CAPTURE / APPLY ──
+function captureState(){
+  return{v:1,deck:[...deck],discardPile:[...discardPile],
+    players:players.map(p=>({...p,hand:[...p.hand]})),
+    activeIdx,turnPhase,knockedByIdx,mustDrawIdx,lastTurnQueue:[...lastTurnQueue],
+    isFirstAction,gameActive,roundCount,dealerIdx,wasKnockedOffDeal,
+    houseRuleKnockLow,houseRuleTripleAces,houseRuleFreeRide,
+    inferredSuits:{...inferredSuits},lastDrawSource,lastDrawnIdx};
+}
+function applyState(s){
+  deck=s.deck??[];discardPile=s.discardPile??[];
+  players=(s.players??[]).map(p=>({...p,hand:[...(p.hand||[])]}));
+  activeIdx=s.activeIdx??0;turnPhase=s.turnPhase??'draw';
+  knockedByIdx=s.knockedByIdx??null;mustDrawIdx=s.mustDrawIdx??-1;
+  lastTurnQueue=s.lastTurnQueue??[];isFirstAction=s.isFirstAction??true;
+  gameActive=s.gameActive??false;roundCount=s.roundCount??0;dealerIdx=s.dealerIdx??0;
+  wasKnockedOffDeal=s.wasKnockedOffDeal??false;
+  houseRuleKnockLow=s.houseRuleKnockLow??true;houseRuleTripleAces=s.houseRuleTripleAces??true;houseRuleFreeRide=s.houseRuleFreeRide??true;
+  inferredSuits=s.inferredSuits??{};lastDrawSource=s.lastDrawSource??null;lastDrawnIdx=s.lastDrawnIdx??-1;
+}
+
+// ── STATE ROTATION ──
+// rotateState: shift array so seat `offset` becomes index 0
+function rotateState(s,offset,n){
+  if(!offset||!n)return s;
+  const rot=i=>(i===null||i<0)?i:(i-offset+n)%n;
+  const newInferred={};
+  for(const [k,v] of Object.entries(s.inferredSuits||{}))newInferred[rot(+k)]=v;
+  return{...s,
+    players:[...s.players.slice(offset),...s.players.slice(0,offset)],
+    activeIdx:rot(s.activeIdx),
+    knockedByIdx:s.knockedByIdx!=null?rot(s.knockedByIdx):null,
+    dealerIdx:rot(s.dealerIdx),
+    mustDrawIdx:s.mustDrawIdx>=0?rot(s.mustDrawIdx):s.mustDrawIdx,
+    lastTurnQueue:(s.lastTurnQueue||[]).map(rot),
+    inferredSuits:newInferred};
+}
+// unrotateState: reverse rotation (local → canonical)
+function unrotateState(s,offset,n){
+  if(!offset||!n)return s;
+  const unrot=i=>(i===null||i<0)?i:(i+offset)%n;
+  const newInferred={};
+  for(const [k,v] of Object.entries(s.inferredSuits||{}))newInferred[unrot(+k)]=v;
+  return{...s,
+    players:[...s.players.slice(n-offset),...s.players.slice(0,n-offset)],
+    activeIdx:unrot(s.activeIdx),
+    knockedByIdx:s.knockedByIdx!=null?unrot(s.knockedByIdx):null,
+    dealerIdx:unrot(s.dealerIdx),
+    mustDrawIdx:s.mustDrawIdx>=0?unrot(s.mustDrawIdx):s.mustDrawIdx,
+    lastTurnQueue:(s.lastTurnQueue||[]).map(unrot),
+    inferredSuits:newInferred};
+}
+
+
+// ── PLAY AGAIN (same room, reset lives) ──
+async function mpPlayAgain(){
+  if(!mpIsHost||!isMultiplayer)return;
+  // Reset all players' lives; keep seats (bots stay, humans stay)
+  players.forEach(p=>{p.lives=maxLives();p.hand=[];});
+  roundCount=0;
+  dealerIdx=nextActive(dealerIdx%players.length); // rotate dealer for fairness
+  // Push reset state so non-hosts transition automatically
+  dismissPilesOverlay();
+  startNewRound();
+  setTimeout(pushState,400);
+}
+
+</script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -217,7 +457,7 @@
     #knockBtn { background:#e74c3c; color:white; } #knockBtn:hover { background:#c0392b; }
     #knockBtn.knock-queued { background:#b8860b; color:#fff; border:2px solid #ffd700; }
     #knockBtn.knock-queued:hover { background:#8b6508; }
-    #newMatchBtn { background:#555; color:white; } #newMatchBtn:hover { background:#444; }
+    #newMatchBtn { background:transparent; color:rgba(255,255,255,0.3); font-size:0.72rem; padding:5px 10px; border:1px solid rgba(255,255,255,0.15); font-weight:normal; } #newMatchBtn:hover { color:rgba(255,255,255,0.55); border-color:rgba(255,255,255,0.3); background:transparent; } #newMatchBtn.confirm-pending { background:rgba(180,30,30,0.75); color:white; border-color:rgba(255,80,80,0.6); font-weight:bold; font-size:0.78rem; animation:none; }
     #readyBtn { background:#27ae60; color:white; box-shadow:0 2px 12px rgba(39,174,96,0.45); display:none; animation:readyPulse 2s ease-in-out infinite; }
     #readyBtn:hover { background:#1e8449; }
     @keyframes readyPulse { 0%,100%{box-shadow:0 2px 12px rgba(39,174,96,0.45)} 50%{box-shadow:0 2px 22px rgba(39,174,96,0.75)} }
@@ -357,6 +597,30 @@
       #myHand { min-height:152px; gap:12px; }
       .zone { max-width:600px; }
     }
+
+    /* ─── MULTIPLAYER LOBBY ─── */
+    #lobbyScreen { max-width:480px; margin:60px auto 0; text-align:center; }
+    .lobby-box { background:rgba(0,0,0,0.35); border-radius:16px; padding:30px 36px; border:2px solid rgba(255,255,255,0.1); margin-bottom:16px; }
+    .lobby-box h2 { font-size:1.3rem; margin-bottom:16px; opacity:0.9; }
+    .mp-input { width:100%; padding:12px 14px; font-size:1rem; border-radius:10px; border:2px solid rgba(255,255,255,0.2); background:rgba(255,255,255,0.1); color:white; outline:none; margin-bottom:12px; text-align:center; font-family:inherit; }
+    .mp-input::placeholder { color:rgba(255,255,255,0.4); }
+    .mp-input:focus { border-color:rgba(255,255,255,0.5); }
+    .mp-code-input { letter-spacing:8px; font-size:1.8rem; font-weight:bold; }
+    .mp-tabs { display:flex; gap:10px; margin-bottom:14px; }
+    .mp-tab-btn { flex:1; padding:10px; background:rgba(255,255,255,0.08); border:2px solid rgba(255,255,255,0.15); border-radius:10px; color:rgba(255,255,255,0.6); cursor:pointer; font-weight:bold; font-size:0.88rem; transition:all 0.2s; }
+    .mp-tab-btn.active { background:rgba(46,204,113,0.2); border-color:#2ecc71; color:#5fffab; }
+    .mp-action-btn { background:#27ae60; color:white; padding:13px 24px; font-size:1rem; font-weight:bold; border:none; border-radius:10px; cursor:pointer; transition:background 0.2s; width:100%; margin-bottom:10px; }
+    .mp-action-btn:hover { background:#1e8449; }
+    .mp-action-btn:disabled { background:rgba(39,174,96,0.4); cursor:not-allowed; }
+    .mp-back-btn { background:transparent; border:none; color:rgba(255,255,255,0.5); font-size:0.85rem; cursor:pointer; padding:6px; margin-top:4px; }
+    .mp-back-btn:hover { color:rgba(255,255,255,0.8); }
+    .room-code-display { font-family:'Rubik',Arial,sans-serif; font-size:3.5rem; font-weight:900; letter-spacing:12px; color:#f1c40f; text-shadow:0 0 20px rgba(241,196,15,0.5); margin:10px 0 14px; }
+    .lobby-player-row { display:flex; align-items:center; gap:10px; padding:8px 12px; background:rgba(255,255,255,0.07); border-radius:8px; margin-bottom:6px; font-size:0.9rem; }
+    .lobby-host-badge { margin-left:auto; font-size:0.65rem; font-weight:bold; background:#27ae60; color:white; padding:2px 7px; border-radius:10px; }
+    #lobbyPlayerCount { font-size:0.8rem; opacity:0.6; margin-bottom:10px; }
+    .online-btn { background:rgba(52,152,219,0.85); margin-top:10px; }
+    .online-btn:hover { background:rgba(41,128,185,1); }
+    .mp-status-msg { font-size:0.82rem; opacity:0.65; margin-bottom:10px; min-height:18px; }
   </style>
 </head>
 <body>
@@ -397,10 +661,41 @@
       </div>
     </div>
     <button class="start-btn" onclick="startMatch()">Deal Cards ▶</button>
+    <button class="start-btn online-btn" onclick="showOnlineMenu()">Play Online 🌐</button>
     <details class="htp-details">
       <summary>How to Play</summary>
       <div class="htp-body" id="htpSetupBody"></div>
     </details>
+  </div>
+</div>
+
+<div id="lobbyScreen" style="display:none">
+  <h1>🃏 Thirty-One</h1>
+  <div id="lobbyEntry" class="lobby-box">
+    <h2>Play Online</h2>
+    <input id="mpNameInput" class="mp-input" type="text" placeholder="Your name" maxlength="16" autocomplete="off"/>
+    <div class="mp-tabs">
+      <button class="mp-tab-btn active" id="tabCreate" onclick="showMpTab('create')">Create Room</button>
+      <button class="mp-tab-btn" id="tabJoin" onclick="showMpTab('join')">Join Room</button>
+    </div>
+    <div id="mpStatusMsg" class="mp-status-msg"></div>
+    <div id="mpCreateSection">
+      <button class="mp-action-btn" id="mpCreateBtn" onclick="mpCreateRoom()">Create Room 🎮</button>
+    </div>
+    <div id="mpJoinSection" style="display:none">
+      <input id="mpCodeInput" class="mp-input mp-code-input" type="text" placeholder="1234" maxlength="4" pattern="[0-9]*" inputmode="numeric" autocomplete="off"/>
+      <button class="mp-action-btn" id="mpJoinBtn" onclick="mpJoinRoom()">Join Room →</button>
+    </div>
+    <button class="mp-back-btn" onclick="showSetupFromLobby()">← Back to Solo</button>
+  </div>
+  <div id="lobbyWaiting" class="lobby-box" style="display:none">
+    <h2>Your Room Code</h2>
+    <div class="room-code-display" id="lobbyRoomCode">----</div>
+    <div id="lobbyPlayerCount">Waiting for players...</div>
+    <div id="lobbyPlayerList" style="margin-bottom:14px;text-align:left"></div>
+    <div class="mp-status-msg" id="mpWaitStatus">Share the code with your crew! 📱</div>
+    <button class="mp-action-btn" id="lobbyStartBtn" onclick="mpStartGame()" style="display:none">Start Game ▶</button>
+    <button class="mp-back-btn" onclick="leaveLobby()">← Leave Room</button>
   </div>
 </div>
 
@@ -450,7 +745,7 @@
   <div class="dock-actions">
     <button id="readyBtn"    onclick="startNewRound()">🃏 Deal — Ready!</button>
     <button id="knockBtn"    onclick="knock()" disabled>Knock 🤛</button>
-    <button id="newMatchBtn" onclick="showSetup()">New Match ▶</button>
+    <button id="newMatchBtn" onclick="confirmNewMatch()">New Match</button>
     <span class="speed-inline">AI: <select id="aiSpeedSelect" onchange="setAiSpeed(this.value)">
       <option value="500">Fast</option><option value="1000" selected>Normal</option>
       <option value="1600">Slow</option><option value="2400">Very Slow</option>
@@ -750,6 +1045,24 @@ function startMatch(){
   startNewRound();
 }
 
+let _newMatchPending=false,_newMatchTimer=null;
+function confirmNewMatch(){
+  const btn=document.getElementById('newMatchBtn');
+  if(_newMatchPending){
+    clearTimeout(_newMatchTimer);_newMatchPending=false;
+    btn.classList.remove('confirm-pending');btn.textContent='New Match';
+    showSetup();
+  } else {
+    _newMatchPending=true;
+    btn.classList.add('confirm-pending');
+    btn.textContent='Tap again to confirm ✕';
+    _newMatchTimer=setTimeout(()=>{
+      _newMatchPending=false;
+      btn.classList.remove('confirm-pending');
+      btn.textContent='New Match';
+    },3000);
+  }
+}
 function showSetup(){
   document.getElementById('setupScreen').style.display='';
   document.getElementById('gameScreen').style.display='none';
@@ -771,6 +1084,7 @@ function startNewRound(){
   gameActive=true;lastDrawSource=null;lastDrawnIdx=-1;
   renderAll();renderTrackingPanel();clearKnockedBadges();
   dealCardAnimations();
+  if(isMultiplayer&&mpIsHost)setTimeout(pushState,400);
   // Check for triple aces on the deal before play begins
   if(houseRuleTripleAces){
     const tap=players.find(p=>p.lives>0&&p.hand.filter(c=>c.rank==='A').length===3);
@@ -806,7 +1120,7 @@ function handScore(hand){
 
 function nextActive(from){for(let i=1;i<=numPlayers;i++){const idx=(from+i)%numPlayers;if(players[idx].lives>0)return idx;}return -1;}
 function activePlayers(){return players.filter(p=>p.lives>0);}
-function isHumanTurn(){return players[activeIdx]&&players[activeIdx].isHuman;}
+function isHumanTurn(){if(!players[activeIdx])return false;if(isMultiplayer)return players[activeIdx].playerId===mpPlayerId;return players[activeIdx].isHuman;}
 
 function buildLastTurnQueue(ki){
   const q=[];let idx=nextActive(ki);const seen=new Set([ki]);
@@ -848,13 +1162,14 @@ function updateTurnUI(){
     setTurnBanner('others-turn','🔵 '+p.name+"'s Turn");setStatus(p.name+' is thinking...');
     // Only offer queued knock during normal play — not during last-turn sequence
     if(knockedByIdx===null){setKnockQueueBtn();}else{knockQueued=false;setKnockBtn(false);}
-    setPileInteractive(false);setTimeout(aiTurn,isFirstAction?Math.max(aiActionMs,2000):aiActionMs);
+    setPileInteractive(false);if(isMultiplayer&&!mpIsHost)return;setTimeout(aiTurn,isFirstAction?Math.max(aiActionMs,2000):aiActionMs);
   }
 }
 
 function highlightZones(){
   document.querySelectorAll('.zone,.opp-mini').forEach(z=>z.classList.remove('active-you','active-them'));
-  if(players[activeIdx].isHuman){document.getElementById('myZone').classList.add('active-you');setMyZoneLabel(turnPhase==='discard'?'Your Hand — click a card to discard':'Your Hand — draw, or tap a card to swap');}
+  const isMyActiveTurn=isMultiplayer?(activeIdx===0):players[activeIdx].isHuman;
+  if(isMyActiveTurn){document.getElementById('myZone').classList.add('active-you');setMyZoneLabel(turnPhase==='discard'?'Your Hand — click a card to discard':'Your Hand — draw, or tap a card to swap');}
   else{const el=document.getElementById('oppMini_'+activeIdx);if(el)el.classList.add('active-them');setMyZoneLabel('Your Hand');}
 }
 
@@ -876,7 +1191,7 @@ function playerTakeDiscard(){
     renderAll();highlightZones();
     showPilesOverlay('tc-draw-discard','You Swap',taken,false,false);
     if(checkHuman31())return;
-    setTimeout(afterTurnActions,1100);
+    mpDidAct=true;setTimeout(afterTurnActions,1100);
     return;
   }
   // ── Normal flow: take discard into hand, then pick what to discard ──
@@ -924,7 +1239,7 @@ function playerDiscard(idx){
   const card=players[activeIdx].hand.splice(idx,1)[0];discardPile.push(card);
   lastDrawSource=null;lastDrawnIdx=-1;turnPhase='draw';SFX.discard();
   renderAll();showPilesOverlay('tc-discarded','You Discard',card,false,false);
-  setTimeout(afterTurnActions,1100);
+  mpDidAct=true;setTimeout(afterTurnActions,1100);
 }
 
 function knock(){
@@ -935,11 +1250,14 @@ function knock(){
     setTurnBanner('hidden','');clearKnockedBadges();
     showKnockSplash('KNOCK!','Off the deal — round ends now!');
     setStatus("Knocked off the deal! Revealing hands...");
+    if(isMultiplayer)setTimeout(pushState,80);
     aiReactToKnock(0);setTimeout(endRound,1800);
   } else {
     lastTurnQueue=buildLastTurnQueue(activeIdx);mustDrawIdx=lastTurnQueue.length>0?lastTurnQueue[0]:-1;setKnockBtn(false);setPileInteractive(false);
     showKnockSplash('KNOCK!',lastTurnQueue.length>0?'Everyone gets one last turn...':'Round over!');
-    setKnockedBadge(activeIdx);setKnockActive('You');aiReactToKnock(0);setTimeout(advanceAfterKnock,1800);
+    setKnockedBadge(activeIdx);setKnockActive('You');aiReactToKnock(0);
+    if(isMultiplayer)setTimeout(pushState,80);
+    setTimeout(advanceAfterKnock,1800);
   }
 }
 
@@ -961,12 +1279,13 @@ function afterTurnActions(){
     if(!p.isHuman)SFX.win31();showThirtyOneSplash(activeIdx);setTimeout(endRound,1800);return;
   }
   isFirstAction=false;
-  if(knockedByIdx!==null){if(lastTurnQueue.length>0){activeIdx=lastTurnQueue.shift();updateTurnUI();}else endRound();return;}
-  activeIdx=nextActive(activeIdx);updateTurnUI();
+  if(knockedByIdx!==null){if(lastTurnQueue.length>0){activeIdx=lastTurnQueue.shift();if(isMultiplayer&&mpDidAct){mpDidAct=false;setTimeout(pushState,50);}updateTurnUI();}else{if(isMultiplayer&&mpDidAct){mpDidAct=false;setTimeout(pushState,50);}endRound();}return;}
+  activeIdx=nextActive(activeIdx);if(isMultiplayer&&mpDidAct){mpDidAct=false;setTimeout(pushState,50);}updateTurnUI();
 }
 
 function aiTurn(){
   if(!gameActive||players[activeIdx].isHuman)return;
+  if(isMultiplayer&&!mpIsHost)return;
   const player=players[activeIdx];const current=handScore(player.hand);const inLast=knockedByIdx!==null;
   const knockThresh=isFirstAction?aiKnockOffDealThreshold(activeIdx):aiKnockThreshold(activeIdx);
   const eff=effectiveAggression(activeIdx);
@@ -991,6 +1310,7 @@ function aiTurn(){
       setTurnBanner('hidden','');clearKnockedBadges();
       showKnockSplash(player.name+' KNOCKS!','Off the deal — round ends now!');
       tableChat(activeIdx,personalityLine(activeIdx,'knock'));
+      if(isMultiplayer&&mpIsHost)setTimeout(pushState,80);
       setTimeout(endRound,1800);return;
     }
     lastTurnQueue=buildLastTurnQueue(activeIdx);mustDrawIdx=lastTurnQueue.length>0?lastTurnQueue[0]:-1;
@@ -1051,6 +1371,7 @@ function aiDiscardPhase(){
   SFX.discard();renderAll();
   showPilesOverlay('tc-discarded',player.name+' Discards',disc,false,false);
   if(handScore(player.hand)===31){tableChat(activeIdx,personalityLine(activeIdx,'thirtyOne')||'31!');SFX.win31();showThirtyOneSplash(activeIdx);setTimeout(endRound,aiActionMs*1.4+1800);return;}
+  if(isMultiplayer&&mpIsHost)mpDidAct=true;
   setTimeout(afterTurnActions,aiActionMs*1.4);
 }
 
@@ -1115,6 +1436,7 @@ function worstCardIdxAware(hand,playerIdx){
 }
 
 function endRound(){
+  if(isMultiplayer&&mpIsHost)setTimeout(pushState,80);
   gameActive=false;setKnockBtn(false);setPileInteractive(false);
   setTurnBanner('hidden','');clearKnockedBadges();dismissPilesOverlay();
   document.querySelectorAll('.zone,.opp-mini').forEach(z=>z.classList.remove('active-you','active-them'));
@@ -1198,7 +1520,7 @@ function flashResultGlows(scoreMap){
   } else low.forEach(x=>markZone(x.idx,'zone-loser'));
 }
 
-function markZone(pi,cls){const id=players[pi].isHuman?'myZone':'oppMini_'+pi;const el=document.getElementById(id);if(el)el.classList.add(cls);}
+function markZone(pi,cls){const isLocal=isMultiplayer?(pi===0):players[pi].isHuman;const id=isLocal?'myZone':'oppMini_'+pi;const el=document.getElementById(id);if(el)el.classList.add(cls);}
 
 // Returns the correct conjugation of "lose" for a list of losing players
 function loseVerb(arr){
@@ -1291,7 +1613,7 @@ function renderAll(revealAll=false){renderOpponentMinis(revealAll);renderMyZone(
 
 function renderOpponentMinis(revealAll){
   const container=document.getElementById('opponentsRow');container.innerHTML='';
-  const ai=players.filter(p=>!p.isHuman);
+  const ai=isMultiplayer?players.filter((_,i)=>i!==0):players.filter(p=>!p.isHuman);
   container.className=ai.length===3?'arc-3':ai.length===2?'arc-2':'arc-1';
   ai.forEach(p=>{
     const i=players.indexOf(p);const mini=document.createElement('div');mini.className='opp-mini';mini.id='oppMini_'+i;
@@ -1560,7 +1882,15 @@ function showResult(title,detail,scoresLine,matchOver){
   document.getElementById('poHeader').textContent=title;
   document.getElementById('poCardWrap').innerHTML='';
   const sub=document.getElementById('poSub');
-  sub.innerHTML='<span class="po-tap">Tap to continue</span>';
+  if(isMultiplayer&&matchOver){
+    if(mpIsHost){
+      sub.innerHTML='<button class="mp-action-btn" style="margin-top:16px;" onclick="mpPlayAgain()">Play Again 🔄</button><br><span class="po-tap" style="opacity:0.25">or tap anywhere to exit</span>';
+    } else {
+      sub.innerHTML='<div style="opacity:0.5;font-size:0.85rem;margin-top:14px;">Waiting for host to start again...</div><br><span class="po-tap" style="opacity:0.25">or tap anywhere to exit</span>';
+    }
+  } else {
+    sub.innerHTML='<span class="po-tap">Tap to continue</span>';
+  }
   tc.classList.remove('tc-draw-deck','tc-draw-discard','tc-discarded');
   clearTimeout(po._dt);
   po.className='visible result';
@@ -1570,7 +1900,7 @@ function closeRoundResult(){
   dismissPilesOverlay();
   document.getElementById('poSub').innerHTML='';
   const mo=resultMatchOver;resultMatchOver=false;
-  if(mo){showSetup();return;}
+  if(mo){if(isMultiplayer)leaveLobby();else showSetup();return;}
   dealerIdx=nextActive(dealerIdx);if(activePlayers().length<=1){showSetup();return;}startNewRound();
 }
 
