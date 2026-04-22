@@ -1012,7 +1012,12 @@ function checkHuman31(){
   tableChat(activeIdx,pick(["31! I'm done!","Thirty-one! Pay up!","31!! 🎉"]));
   SFX.win31();showThirtyOneSplash(activeIdx);
   renderAll();
-  setTimeout(endRound,1800);
+  if(isMultiplayer&&!mpIsHost){
+    // Non-host: signal host to run endRound — don't call it directly
+    gameActive=false;setTimeout(pushState,80);
+  } else {
+    setTimeout(endRound,1800);
+  }
   return true;
 }
 
@@ -1047,18 +1052,37 @@ function aiReactToKnock(ki){
   const r=players.filter((p,i)=>!p.isHuman&&p.lives>0&&i!==ki);if(!r.length)return;
   const rc=pick(r);const idx=players.indexOf(rc);setTimeout(()=>tableChat(idx,personalityLine(idx,'reactKnock')),700);
 }
-function advanceAfterKnock(){if(lastTurnQueue.length>0){activeIdx=lastTurnQueue.shift();if(isMultiplayer)setTimeout(pushState,60);updateTurnUI();}else endRound();}
+function advanceAfterKnock(){
+  if(lastTurnQueue.length>0){
+    activeIdx=lastTurnQueue.shift();
+    if(isMultiplayer)setTimeout(pushState,60);
+    updateTurnUI();
+  } else {
+    if(isMultiplayer&&!mpIsHost){
+      // Non-host: signal host to run endRound — never call it directly
+      gameActive=false;setTimeout(pushState,80);
+    } else {
+      endRound();
+    }
+  }
+}
 
 function afterTurnActions(){
   const score=handScore(players[activeIdx].hand);
   // House Rule: Triple Aces
   if(houseRuleTripleAces&&players[activeIdx].hand.length===3&&players[activeIdx].hand.filter(c=>c.rank==='A').length===3){
-    tripleAcesIdx=activeIdx;SFX.win31();showTripleAcesSplash(activeIdx);setTimeout(endRound,2000);return;
+    tripleAcesIdx=activeIdx;SFX.win31();showTripleAcesSplash(activeIdx);
+    if(isMultiplayer&&!mpIsHost){gameActive=false;mpDidAct=false;setTimeout(pushState,80);}
+    else{mpDidAct=false;setTimeout(endRound,2000);}
+    return;
   }
   if(score===31){
     const p=players[activeIdx];
     tableChat(activeIdx,p.isHuman?pick(["31! That's a chip from all of you!","Thirty-one! Pay up!"]):personalityLine(activeIdx,'thirtyOne'));
-    if(!p.isHuman)SFX.win31();showThirtyOneSplash(activeIdx);setTimeout(endRound,1800);return;
+    if(!p.isHuman)SFX.win31();showThirtyOneSplash(activeIdx);
+    if(isMultiplayer&&!mpIsHost){gameActive=false;mpDidAct=false;setTimeout(pushState,80);}
+    else{mpDidAct=false;setTimeout(endRound,1800);}
+    return;
   }
   isFirstAction=false;
   if(knockedByIdx!==null){if(lastTurnQueue.length>0){activeIdx=lastTurnQueue.shift();if(isMultiplayer&&mpDidAct){mpDidAct=false;setTimeout(pushState,50);}updateTurnUI();}else{if(isMultiplayer&&!mpIsHost){// Non-host finished last turn: signal host to run endRound
