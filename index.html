@@ -1919,13 +1919,35 @@ function subscribeRoom(){
     .on('postgres_changes',{event:'*',schema:'public',table:'game_state',filter:'room_id=eq.'+mpRoomId},(payload)=>{if(payload.new&&payload.new.state)onStateReceived(payload.new.state);})
     .on('broadcast',{event:'gamestate'},({payload})=>{if(payload&&payload.pushedBy!==mpPlayerId)onStateReceived(payload);})
     .on('broadcast',{event:'showdown'},({payload})=>{
-      if(!mpIsHost&&payload){
-        renderAll(true);renderAllLives();
-        setTurnBanner('hidden','');setPileInteractive(false);setKnockBtn(false);
-        showResult(payload.title,payload.detail,payload.scoresLine,payload.matchOver);
-      }
+      if(!mpIsHost&&payload)mpShowResult(payload.title,payload.detail,payload.scoresLine,payload.matchOver);
     })
     .subscribe((status)=>{if(status==='SUBSCRIBED'&&!mpIsHost){fetchLatestState();}});
+}
+function mpShowResult(title,detail,scoresLine,matchOver){
+  document.getElementById('mpResultDiv')?.remove();
+  renderAll(true);renderAllLives();
+  setPileInteractive(false);setKnockBtn(false);setTurnBanner('hidden','');
+  resultMatchOver=matchOver;roundSummary={title,detail,scoresLine,matchOver};
+  const inControl=mpIsInControl();
+  const ndi=nextActive(dealerIdx);
+  const dealerName=(players[ndi]?.name)||'dealer';
+  const d=document.createElement('div');
+  d.id='mpResultDiv';
+  d.style.cssText='position:fixed;inset:0;z-index:9999;background:rgba(6,28,14,0.97);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:28px;text-align:center;color:white;';
+  d.innerHTML=`
+    <div style="font-size:1.7rem;font-weight:900;white-space:pre-line;margin-bottom:14px;line-height:1.3;">${title}</div>
+    <div style="font-size:0.95rem;opacity:0.8;margin-bottom:8px;">${detail}</div>
+    <div style="font-size:0.72rem;opacity:0.5;font-family:monospace;margin-bottom:24px;">${scoresLine}</div>
+    ${inControl
+      ? `<div style="font-size:1rem;font-weight:800;color:#f1c40f;letter-spacing:2px;text-transform:uppercase;animation:knockIndPulse 1.4s ease-in-out infinite;">Tap to deal next hand</div>`
+      : `<div style="font-size:0.9rem;opacity:0.6;">Waiting for ${dealerName} to deal...</div>`
+    }
+  `;
+  if(inControl){
+    d.style.cursor='pointer';
+    d.onclick=()=>{d.remove();dealerIdx=nextActive(dealerIdx);if(activePlayers().length<=1){leaveLobby();return;}startNewRound();setTimeout(pushState,300);};
+  }
+  document.body.appendChild(d);
 }
 async function fetchLatestState(){
   try{
@@ -1998,6 +2020,7 @@ function onStateReceived(canonical){
   // New round starting — dismiss any result overlay and re-render fresh
   if(local.gameActive&&!wasActive){
     dismissPilesOverlay();
+    document.getElementById('mpResultDiv')?.remove();
     document.getElementById('poSub').innerHTML='';
     renderAll();updateTurnUI();return;
   }
