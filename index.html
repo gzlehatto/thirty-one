@@ -925,7 +925,11 @@ function updateTurnUI(){
         checkHuman31();
         return;
       }
-      setTimeout(knock,120);return;
+      setTimeout(()=>{
+        // Only knock if it's still our turn in draw phase; otherwise recover controls
+        if(gameActive&&isHumanTurn()&&turnPhase==='draw'){knock();}
+        else if(gameActive&&isHumanTurn()){setPileInteractive(true);setKnockBtn(knockedByIdx===null);}
+      },120);return;
     }
     knockQueued=false;
     selectedHandIdx=null;
@@ -1043,7 +1047,7 @@ function aiReactToKnock(ki){
   const r=players.filter((p,i)=>!p.isHuman&&p.lives>0&&i!==ki);if(!r.length)return;
   const rc=pick(r);const idx=players.indexOf(rc);setTimeout(()=>tableChat(idx,personalityLine(idx,'reactKnock')),700);
 }
-function advanceAfterKnock(){if(lastTurnQueue.length>0){activeIdx=lastTurnQueue.shift();if(isMultiplayer&&mpIsHost)setTimeout(pushState,60);updateTurnUI();}else endRound();}
+function advanceAfterKnock(){if(lastTurnQueue.length>0){activeIdx=lastTurnQueue.shift();if(isMultiplayer)setTimeout(pushState,60);updateTurnUI();}else endRound();}
 
 function afterTurnActions(){
   const score=handScore(players[activeIdx].hand);
@@ -1057,7 +1061,11 @@ function afterTurnActions(){
     if(!p.isHuman)SFX.win31();showThirtyOneSplash(activeIdx);setTimeout(endRound,1800);return;
   }
   isFirstAction=false;
-  if(knockedByIdx!==null){if(lastTurnQueue.length>0){activeIdx=lastTurnQueue.shift();if(isMultiplayer&&mpDidAct){mpDidAct=false;setTimeout(pushState,50);}updateTurnUI();}else{mpDidAct=false;endRound();}return;}
+  if(knockedByIdx!==null){if(lastTurnQueue.length>0){activeIdx=lastTurnQueue.shift();if(isMultiplayer&&mpDidAct){mpDidAct=false;setTimeout(pushState,50);}updateTurnUI();}else{if(isMultiplayer&&!mpIsHost){// Non-host finished last turn: signal host to run endRound
+      if(mpDidAct)setTimeout(pushState,80);mpDidAct=false;
+      gameActive=false;setKnockBtn(false);setPileInteractive(false);setTurnBanner('hidden','');
+      setStatus('Round over…');
+    }else{mpDidAct=false;endRound();}}return;}
   activeIdx=nextActive(activeIdx);if(isMultiplayer&&mpDidAct){mpDidAct=false;setTimeout(pushState,50);}updateTurnUI();
 }
 
@@ -1739,6 +1747,10 @@ function clearKnockActive(){
   const ki=document.getElementById('knockIndicator');
   if(ki)ki.classList.remove('visible');
 }
+function syncKnockIndicator(){
+  if(knockedByIdx!==null){const kp=players[knockedByIdx];if(kp)setKnockActive(knockedByIdx===0?'You':kp.name);}
+  else clearKnockActive();
+}
 
 updateSetupPreview();
 
@@ -2013,7 +2025,6 @@ function onStateReceived(canonical){
   const local=mpCanonicalSeat===0?canonical:rotateState(canonical,mpCanonicalSeat,canonical.players?.length||2);
   const wasActive=gameActive;
   const hadSummary=!!roundSummary;
-  const prevKnockedBy=knockedByIdx;
   applyState(local);
 
   if(document.getElementById('lobbyScreen').style.display!=='none'){showMpGameScreen();}
@@ -2022,6 +2033,7 @@ function onStateReceived(canonical){
     dismissPilesOverlay();
     document.getElementById('mpResultDiv')?.remove();
     document.getElementById('poSub').innerHTML='';
+    syncKnockIndicator();
     renderAll();updateTurnUI();return;
   }
   // Round just ended OR summary just arrived — show showdown overlay
@@ -2029,24 +2041,23 @@ function onStateReceived(canonical){
   const summaryJustArrived=!local.gameActive&&!hadSummary&&!!local.roundSummary;
 
   if(roundJustEnded||summaryJustArrived){
-    renderAll(true);renderAllLives();
-    setTurnBanner('hidden','');
-    setPileInteractive(false);setKnockBtn(false);
     if(local.roundSummary){
-const rs=local.roundSummary;
+      // Full result received — reveal and show
+      renderAll(true);renderAllLives();
+      setTurnBanner('hidden','');setPileInteractive(false);setKnockBtn(false);
+      const rs=local.roundSummary;
       showResult(rs.title,rs.detail,rs.scoresLine,rs.matchOver);
+    } else if(mpIsHost){
+      // Non-host signaled round over (gameActive=false, no summary) — host runs endRound
+      endRound();
     } else {
-      setStatus('Round over — waiting for dealer to continue...');
+      setTurnBanner('hidden','');setPileInteractive(false);setKnockBtn(false);
+      setStatus('Round over — waiting for results…');
     }
     return;
   }
-  // Knock just happened — show knock indicator on non-host
-  if(knockedByIdx!==null&&prevKnockedBy===null){
-    const kp=players[knockedByIdx];
-    if(kp)setKnockActive(knockedByIdx===0?'You':kp.name);
-  } else if(knockedByIdx===null&&prevKnockedBy!==null){
-    clearKnockActive();
-  }
+  // Sync knock indicator with current state
+  syncKnockIndicator();
   renderAll();
   updateTurnUI();
 }
