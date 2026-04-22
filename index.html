@@ -2035,6 +2035,7 @@ function onStateReceived(canonical){
   const local=mpCanonicalSeat===0?canonical:rotateState(canonical,mpCanonicalSeat,canonical.players?.length||2);
   const wasActive=gameActive;
   const hadSummary=!!roundSummary;
+  const prevKnockedByIdx=knockedByIdx;  // capture BEFORE applyState so we can detect new knocks
   applyState(local);
 
   if(document.getElementById('lobbyScreen').style.display!=='none'){showMpGameScreen();}
@@ -2061,10 +2062,24 @@ function onStateReceived(canonical){
       // Non-host signaled round over (gameActive=false, no summary) — host runs endRound
       endRound();
     } else {
+      // Non-host waiting for host to compute results.
+      // If this was a knock-off-deal, show the knock splash so the non-host knows what happened.
       setTurnBanner('hidden','');setPileInteractive(false);setKnockBtn(false);
+      if(local.wasKnockedOffDeal){
+        const knockerIdx=activeIdx;  // after applyState, activeIdx is still the knocker
+        const kname=knockerIdx===0?'You':players[knockerIdx]?.name??'Opponent';
+        showKnockSplash(knockerIdx===0?'You knocked!':kname+' KNOCKS!','Off the deal — round ends now!');
+      }
       setStatus('Round over — waiting for results…');
     }
     return;
+  }
+  // Mid-round: detect a new knock and show the splash to this player
+  if(knockedByIdx!==null&&prevKnockedByIdx===null){
+    const kp=players[knockedByIdx];
+    const kname=knockedByIdx===0?'You':kp?.name??'Opponent';
+    showKnockSplash(knockedByIdx===0?'You knocked!':kname+' KNOCKS!',
+      lastTurnQueue.length>0?'Everyone gets one last turn...':'Round over!');
   }
   // Sync knock indicator with current state
   syncKnockIndicator();
