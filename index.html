@@ -1821,6 +1821,8 @@ let mpPlayerName='';
 let mpCanonicalSeat=0;   // this player's seat in un-rotated (host) order
 let mpIsHost=false;
 let mpChannel=null;
+let mpPushSeq=0;                 // monotonically increasing seq for our own pushes
+const mpSeenSeqs={};             // tracks highest seq seen from each sender (by playerId)
 let mpDidAct=false;      // true after local player/host-AI completes a turn action → triggers push
 
 // ── SCREEN MANAGEMENT ──
@@ -1846,6 +1848,7 @@ function mpSetStatus(msg){document.getElementById('mpStatusMsg').textContent=msg
 function leaveLobby(){
   if(mpChannel){getSB().removeChannel(mpChannel);mpChannel=null;}
   mpRoomId=null;mpRoomCode=null;mpIsHost=false;isMultiplayer=false;
+  mpPushSeq=0;for(const k in mpSeenSeqs)delete mpSeenSeqs[k];
   showSetupFromLobby();
 }
 
@@ -2010,7 +2013,8 @@ async function pushState(){
   if(!isMultiplayer)return;
   const local=captureState();
   const canonical=mpCanonicalSeat===0?local:unrotateState(local,mpCanonicalSeat,local.players.length);
-  const payload={...canonical,pushedBy:mpPlayerId};
+  mpPushSeq++;
+  const payload={...canonical,pushedBy:mpPlayerId,pushSeq:mpPushSeq};
   try{
     // Broadcast first (fast) then persist to DB (for late joiners)
     if(mpChannel)mpChannel.send({type:'broadcast',event:'gamestate',payload});
@@ -2022,6 +2026,12 @@ async function pushState(){
 function onStateReceived(canonical){
   if(!isMultiplayer)return;
   if(canonical.pushedBy===mpPlayerId)return;  // our own echo
+  // Reject stale duplicate deliveries (broadcast arrives fast; postgres_changes can
+  // re-deliver the same — or an older — push seconds later via the DB listener)
+  const sender=canonical.pushedBy;
+  const seq=canonical.pushSeq||0;
+  if(seq&&seq<=(mpSeenSeqs[sender]||0))return;  // already applied a newer push from this sender
+  if(seq)mpSeenSeqs[sender]=seq;
   const local=mpCanonicalSeat===0?canonical:rotateState(canonical,mpCanonicalSeat,canonical.players?.length||2);
   const wasActive=gameActive;
   const hadSummary=!!roundSummary;
