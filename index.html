@@ -1248,20 +1248,36 @@ function endRound(){
   startShowdown(scoreMap);
 }
 
-function startShowdown(scoreMap){
+function startShowdown(scoreMap,onRevealDone){
   SFX.showdown();const splash=document.getElementById('knockSplash');
   splash.classList.add('showdown');showKnockSplash('SHOWDOWN','Revealing hands\u2026');
-  setTimeout(()=>{splash.classList.remove('showdown');beginRevealSequence(scoreMap);},1750);
+  setTimeout(()=>{splash.classList.remove('showdown');beginRevealSequence(scoreMap,onRevealDone);},1750);
 }
 
-function beginRevealSequence(scoreMap){
+function beginRevealSequence(scoreMap,onRevealDone){
   setStatus('\uD83C\uDFA4 Showdown \u2014 watching the reveal\u2026');
-  const ai=scoreMap.filter(x=>!x.player.isHuman).map(x=>x.idx);
-  for(let i=ai.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[ai[i],ai[j]]=[ai[j],ai[i]];}
-  const hu=scoreMap.find(x=>x.player.isHuman);
-  const order=hu?[...ai,hu.idx]:ai;
+  let order;
+  if(isMultiplayer){
+    // In multiplayer all non-local seats (idx>0) need card reveals regardless of isHuman flag;
+    // only the local player at idx 0 gets a score-only animation
+    const others=scoreMap.filter(x=>x.idx!==0).map(x=>x.idx);
+    for(let i=others.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[others[i],others[j]]=[others[j],others[i]];}
+    const hasLocal=scoreMap.some(x=>x.idx===0);
+    order=hasLocal?[...others,0]:others;
+  } else {
+    const ai=scoreMap.filter(x=>!x.player.isHuman).map(x=>x.idx);
+    for(let i=ai.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[ai[i],ai[j]]=[ai[j],ai[i]];}
+    const hu=scoreMap.find(x=>x.player.isHuman);
+    order=hu?[...ai,hu.idx]:ai;
+  }
   function revealNext(i){
-    if(i>=order.length){setTimeout(()=>{flashResultGlows(scoreMap);setTimeout(()=>applyRoundResult(scoreMap),1500);},650);return;}
+    if(i>=order.length){
+      setTimeout(()=>{
+        flashResultGlows(scoreMap);
+        if(onRevealDone)setTimeout(()=>onRevealDone(scoreMap),1500);
+        else setTimeout(()=>applyRoundResult(scoreMap),1500);
+      },650);return;
+    }
     revealPlayerInZone(order[i],scoreMap);setTimeout(()=>revealNext(i+1),950+Math.random()*750);
   }
   revealNext(0);
@@ -1270,7 +1286,9 @@ function beginRevealSequence(scoreMap){
 function revealPlayerInZone(pi,scoreMap){
   const player=players[pi];const entry=scoreMap.find(x=>x.idx===pi);if(!entry)return;
   const score=entry.score;
-  if(player.isHuman){
+  // In multiplayer local player is always idx 0; in single-player it's the isHuman player
+  const isLocalPlayer=isMultiplayer?pi===0:player.isHuman;
+  if(isLocalPlayer){
     const el=document.getElementById('myScore');el.textContent=score;
     el.style.cssText='';
     el.classList.remove('reveal-score');void el.offsetWidth;el.classList.add('reveal-score');return;
@@ -1823,6 +1841,8 @@ let mpIsHost=false;
 let mpChannel=null;
 let mpPushSeq=0;                 // monotonically increasing seq for our own pushes
 const mpSeenSeqs={};             // tracks highest seq seen from each sender (by playerId)
+let mpRevealState='idle';        // 'idle' | 'revealing' | 'done' — tracks non-host reveal progress
+let mpPendingResult=null;        // roundSummary stored while reveal is in progress
 let mpDidAct=false;      // true after local player/host-AI completes a turn action → triggers push
 
 // ── SCREEN MANAGEMENT ──
@@ -1849,6 +1869,7 @@ function leaveLobby(){
   if(mpChannel){getSB().removeChannel(mpChannel);mpChannel=null;}
   mpRoomId=null;mpRoomCode=null;mpIsHost=false;isMultiplayer=false;
   mpPushSeq=0;for(const k in mpSeenSeqs)delete mpSeenSeqs[k];
+  mpRevealState='idle';mpPendingResult=null;
   showSetupFromLobby();
 }
 
