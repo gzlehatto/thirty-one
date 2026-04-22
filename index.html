@@ -900,7 +900,9 @@ function buildLastTurnQueue(ki){
 function updateTurnUI(){
   if(!gameActive)return;
   const p=players[activeIdx];highlightZones();
-  if(p.isHuman){
+  // In multiplayer, check if it's specifically THIS client's turn
+  const isMyTurn=isMultiplayer?isHumanTurn():p.isHuman;
+  if(isMyTurn){
     const inLast=knockedByIdx!==null;
     const isFirstAfterKnock=activeIdx===mustDrawIdx;
     if(isFirstAction){setTurnBanner('your-turn','🟢 Your Turn');setStatus("You can <strong>Knock off the deal</strong>, or take the <strong>top discard</strong> / <strong>draw from the deck</strong>.");}
@@ -928,6 +930,12 @@ function updateTurnUI(){
     knockQueued=false;
     selectedHandIdx=null;
     setKnockBtn(!inLast);setPileInteractive(true);
+  } else if(isMultiplayer&&p.isHuman&&p.playerId){
+    // Another real human's turn — show their name and wait for their push
+    setTurnBanner('others-turn','🔵 '+p.name+"'s Turn");
+    setStatus(p.name+' is thinking...');
+    if(knockedByIdx===null){setKnockQueueBtn();}else{knockQueued=false;setKnockBtn(false);}
+    setPileInteractive(false);
   } else {
     setTurnBanner('others-turn','🔵 '+p.name+"'s Turn");setStatus(p.name+' is thinking...');
     // Only offer queued knock during normal play — not during last-turn sequence
@@ -1972,6 +1980,8 @@ function onStateReceived(canonical){
   if(canonical.pushedBy===mpPlayerId)return;  // our own echo
   const local=mpCanonicalSeat===0?canonical:rotateState(canonical,mpCanonicalSeat,canonical.players?.length||2);
   const wasActive=gameActive;
+  const hadSummary=!!roundSummary;
+  const prevKnockedBy=knockedByIdx;
   applyState(local);
   if(document.getElementById('lobbyScreen').style.display!=='none'){showMpGameScreen();}
   // New round starting — dismiss any result overlay and re-render fresh
@@ -1980,8 +1990,10 @@ function onStateReceived(canonical){
     document.getElementById('poSub').innerHTML='';
     renderAll();updateTurnUI();return;
   }
-  // Round just ended — show showdown overlay (same as host sees)
-  if(!local.gameActive&&wasActive){
+  // Round just ended OR summary just arrived — show showdown overlay
+  const roundJustEnded=!local.gameActive&&wasActive;
+  const summaryJustArrived=!local.gameActive&&!hadSummary&&!!local.roundSummary;
+  if(roundJustEnded||summaryJustArrived){
     renderAll(true);renderAllLives();
     setTurnBanner('hidden','');
     setPileInteractive(false);setKnockBtn(false);
@@ -1992,6 +2004,13 @@ function onStateReceived(canonical){
       setStatus('Round over — waiting for dealer to continue...');
     }
     return;
+  }
+  // Knock just happened — show knock indicator on non-host
+  if(knockedByIdx!==null&&prevKnockedBy===null){
+    const kp=players[knockedByIdx];
+    if(kp)setKnockActive(knockedByIdx===0?'You':kp.name);
+  } else if(knockedByIdx===null&&prevKnockedBy!==null){
+    clearKnockActive();
   }
   renderAll();
   updateTurnUI();
