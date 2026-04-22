@@ -1664,9 +1664,12 @@ function mpIsInControl(){
 
 function showResult(title,detail,scoresLine,matchOver){
   resultMatchOver=matchOver;
-  // Store summary so non-hosts can render the same overlay
   roundSummary={title,detail,scoresLine,matchOver};
-  if(isMultiplayer&&mpIsHost)setTimeout(pushState,60);
+  if(isMultiplayer&&mpIsHost){
+    // Broadcast showdown directly so non-hosts see it immediately
+    if(mpChannel)mpChannel.send({type:'broadcast',event:'showdown',payload:{title,detail,scoresLine,matchOver}});
+    setTimeout(pushState,60);
+  }
   const po=document.getElementById('pilesOverlay');
   const tc=document.getElementById('tableCenter');
   document.getElementById('poHeader').textContent=title;
@@ -1915,6 +1918,13 @@ function subscribeRoom(){
     .on('postgres_changes',{event:'*',schema:'public',table:'room_players',filter:'room_id=eq.'+mpRoomId},()=>{refreshLobbyList();})
     .on('postgres_changes',{event:'*',schema:'public',table:'game_state',filter:'room_id=eq.'+mpRoomId},(payload)=>{if(payload.new&&payload.new.state)onStateReceived(payload.new.state);})
     .on('broadcast',{event:'gamestate'},({payload})=>{if(payload&&payload.pushedBy!==mpPlayerId)onStateReceived(payload);})
+    .on('broadcast',{event:'showdown'},({payload})=>{
+      if(!mpIsHost&&payload){
+        renderAll(true);renderAllLives();
+        setTurnBanner('hidden','');setPileInteractive(false);setKnockBtn(false);
+        showResult(payload.title,payload.detail,payload.scoresLine,payload.matchOver);
+      }
+    })
     .subscribe((status)=>{if(status==='SUBSCRIBED'&&!mpIsHost){fetchLatestState();}});
 }
 async function fetchLatestState(){
@@ -1983,6 +1993,7 @@ function onStateReceived(canonical){
   const hadSummary=!!roundSummary;
   const prevKnockedBy=knockedByIdx;
   applyState(local);
+
   if(document.getElementById('lobbyScreen').style.display!=='none'){showMpGameScreen();}
   // New round starting — dismiss any result overlay and re-render fresh
   if(local.gameActive&&!wasActive){
@@ -1993,12 +2004,13 @@ function onStateReceived(canonical){
   // Round just ended OR summary just arrived — show showdown overlay
   const roundJustEnded=!local.gameActive&&wasActive;
   const summaryJustArrived=!local.gameActive&&!hadSummary&&!!local.roundSummary;
+
   if(roundJustEnded||summaryJustArrived){
     renderAll(true);renderAllLives();
     setTurnBanner('hidden','');
     setPileInteractive(false);setKnockBtn(false);
     if(local.roundSummary){
-      const rs=local.roundSummary;
+const rs=local.roundSummary;
       showResult(rs.title,rs.detail,rs.scoresLine,rs.matchOver);
     } else {
       setStatus('Round over — waiting for dealer to continue...');
