@@ -858,7 +858,7 @@ function startNewRound(){
   firstActorIdx=nextActive(dealerIdx);activeIdx=firstActorIdx;
   knockedByIdx=null;lastTurnQueue=[];mustDrawIdx=-1;isFirstAction=true;turnPhase='draw';knockQueued=false;
   wasKnockedOffDeal=false;tripleAcesIdx=null;inferredSuits={};clearKnockActive();dismissPilesOverlay();
-  gameActive=true;lastDrawSource=null;lastDrawnIdx=-1;
+  gameActive=true;lastDrawSource=null;lastDrawnIdx=-1;mpLastAction=null;
   renderAll();renderTrackingPanel();clearKnockedBadges();
   dealCardAnimations();
   if(isMultiplayer&&mpIsHost)setTimeout(pushState,400);
@@ -979,6 +979,7 @@ function playerTakeDiscard(){
     turnPhase='draw';setPileInteractive(false);SFX.card();
     renderAll();highlightZones();
     showPilesOverlay('tc-draw-discard','You Swap',taken,false,false);
+    if(isMultiplayer)mpLastAction={playerName:players[activeIdx].name,drawSource:'discard',drawnCard:taken,discardedCard:discarded,isSwap:true};
     if(checkHuman31())return;
     mpDidAct=true;setTimeout(afterTurnActions,1100);
     return;
@@ -991,6 +992,7 @@ function playerTakeDiscard(){
   turnPhase='discard';setPileInteractive(false);SFX.card();
   renderAll();highlightZones();
   showPilesOverlay('tc-draw-discard','You Take',card,false,true);
+  if(isMultiplayer)mpLastAction={playerName:players[activeIdx].name,drawSource:'discard',drawnCard:card,discardedCard:null};
   if(checkHuman31())return;
   setStatus("You took the discard. <strong>Click the card you want to discard</strong>.");
 }
@@ -1005,6 +1007,7 @@ function playerDrawFromDeck(){
   turnPhase='discard';setPileInteractive(false);SFX.card();
   renderAll();highlightZones();
   showPilesOverlay('tc-draw-deck','You Draw',null,true,true);
+  if(isMultiplayer)mpLastAction={playerName:players[activeIdx].name,drawSource:'deck',drawnCard:null,discardedCard:null};
   if(checkHuman31())return;
   setStatus("Card drawn. <strong>Click the card you want to discard</strong>.");
 }
@@ -1033,6 +1036,7 @@ function playerDiscard(idx){
   const card=players[activeIdx].hand.splice(idx,1)[0];discardPile.push(card);
   lastDrawSource=null;lastDrawnIdx=-1;turnPhase='draw';SFX.discard();
   renderAll();showPilesOverlay('tc-discarded','You Discard',card,false,false);
+  if(isMultiplayer){if(mpLastAction)mpLastAction.discardedCard=card;else mpLastAction={playerName:players[activeIdx].name,drawSource:null,drawnCard:null,discardedCard:card};}
   mpDidAct=true;setTimeout(afterTurnActions,1100);
 }
 
@@ -1142,12 +1146,15 @@ function aiTurn(){
       inferredSuits[activeIdx]=taken.suit; // visible to all — everyone notes what they're chasing
       tableChat(activeIdx,personalityLine(activeIdx,'drawDiscard'));SFX.card();renderAll();
       showPilesOverlay('tc-draw-discard',player.name+' Takes',taken,false,true);
+      if(isMultiplayer&&mpIsHost)mpLastAction={playerName:player.name,drawSource:'discard',drawnCard:taken,discardedCard:null};
       setTimeout(aiDiscardPhase,aiActionMs*1.5);return;
     }
   }
   if(deck.length>0){
     player.hand.push(deck.pop());tableChat(activeIdx,personalityLine(activeIdx,'drawDeck'));SFX.card();renderAll();
-    showPilesOverlay('tc-draw-deck',player.name+' Draws',null,true,true);setTimeout(aiDiscardPhase,aiActionMs*1.5);
+    showPilesOverlay('tc-draw-deck',player.name+' Draws',null,true,true);
+    if(isMultiplayer&&mpIsHost)mpLastAction={playerName:player.name,drawSource:'deck',drawnCard:null,discardedCard:null};
+    setTimeout(aiDiscardPhase,aiActionMs*1.5);
   } else {tableChat(activeIdx,"Deck's empty — keeping my hand.");afterTurnActions();}
 }
 
@@ -1187,6 +1194,7 @@ function aiDiscardPhase(){
   const disc=player.hand.splice(wi,1)[0];discardPile.push(disc);
   SFX.discard();renderAll();
   showPilesOverlay('tc-discarded',player.name+' Discards',disc,false,false);
+  if(isMultiplayer&&mpIsHost&&mpLastAction)mpLastAction.discardedCard=disc;
   if(handScore(player.hand)===31){tableChat(activeIdx,personalityLine(activeIdx,'thirtyOne')||'31!');SFX.win31();showThirtyOneSplash(activeIdx);setTimeout(endRound,aiActionMs*1.4+1800);return;}
   if(isMultiplayer&&mpIsHost)mpDidAct=true;
   setTimeout(afterTurnActions,aiActionMs*1.4);
@@ -1887,6 +1895,7 @@ const mpSeenSeqs={};             // tracks highest seq seen from each sender (by
 let mpRevealState='idle';        // 'idle' | 'revealing' | 'done' — tracks non-host reveal progress
 let mpPendingResult=null;        // roundSummary stored while reveal is in progress
 let mpDidAct=false;      // true after local player/host-AI completes a turn action → triggers push
+let mpLastAction=null;   // {playerName,drawSource,drawnCard,discardedCard,isSwap} — included in state push so receivers can replay overlays
 
 // ── SCREEN MANAGEMENT ──
 function showOnlineMenu(){
@@ -2201,6 +2210,27 @@ function onStateReceived(canonical){
   syncKnockIndicator();
   renderAll();
   updateTurnUI();
+  // ── Replay draw/discard overlay so non-host sees "Sam draws an 8 of spades" ──
+  if(local.gameActive&&local.lastAction){
+    const la=local.lastAction;
+    if(la.isSwap){
+      // Atomic swap: show combined overlay briefly
+      showPilesOverlay('tc-draw-discard',la.playerName+' Swaps',la.drawnCard,false,false);
+    } else {
+      // Draw overlay first
+      if(la.drawSource==='deck'){
+        showPilesOverlay('tc-draw-deck',la.playerName+' Draws',null,true,true);
+      } else if(la.drawSource==='discard'&&la.drawnCard){
+        showPilesOverlay('tc-draw-discard',la.playerName+' Takes',la.drawnCard,false,true);
+      }
+      // Discard overlay after a delay (mirrors host timing)
+      if(la.discardedCard){
+        setTimeout(()=>{
+          if(gameActive)showPilesOverlay('tc-discarded',la.playerName+' Discards',la.discardedCard,false,false);
+        },1200);
+      }
+    }
+  }
 }
 
 // ── CAPTURE / APPLY ──
@@ -2211,7 +2241,8 @@ function captureState(){
     isFirstAction,gameActive,roundCount,dealerIdx,wasKnockedOffDeal,
     houseRuleKnockLow,houseRuleTripleAces,houseRuleFreeRide,
     inferredSuits:{...inferredSuits},lastDrawSource,lastDrawnIdx,
-    roundSummary:roundSummary??null};
+    roundSummary:roundSummary??null,
+    lastAction:mpLastAction??null};
 }
 function applyState(s){
   deck=s.deck??[];discardPile=s.discardPile??[];
