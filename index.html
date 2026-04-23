@@ -1854,6 +1854,7 @@ if(window.ResizeObserver){
   new ResizeObserver(syncDockHeight).observe(document.getElementById('controlDock'));
 }
 window.addEventListener('resize',syncDockHeight);
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')fetchLatestState();});
 // ════════════════════════════════════════════════════════════════
 // MULTIPLAYER  —  Firebase Firestore
 // ════════════════════════════════════════════════════════════════
@@ -1921,6 +1922,7 @@ function mpShakeInput(id){
   setTimeout(()=>el.classList.remove('input-error'),600);
 }
 function leaveLobby(){
+  _stopMpPoll();
   mpUnsubs.forEach(fn=>{try{fn();}catch(e){}});mpUnsubs=[];
   mpRoomId=null;mpRoomCode=null;mpIsHost=false;isMultiplayer=false;
   mpPushSeq=0;for(const k in mpSeenSeqs)delete mpSeenSeqs[k];
@@ -2007,22 +2009,33 @@ async function refreshLobbyList(){
 }
 
 // ── REALTIME SUBSCRIPTION ──
+let _mpPollInterval=null;
+function _startMpPoll(){
+  clearInterval(_mpPollInterval);
+  _mpPollInterval=setInterval(()=>{if(isMultiplayer&&mpRoomId)fetchLatestState();},2000);
+}
+function _stopMpPoll(){clearInterval(_mpPollInterval);_mpPollInterval=null;}
+
 function subscribeRoom(){
   const db=getDB();
   const unsubPlayers=db.collection('rooms').doc(mpRoomId).collection('players')
-    .onSnapshot(()=>refreshLobbyList());
+    .onSnapshot(()=>refreshLobbyList(),e=>console.warn('players snapshot error:',e));
   const unsubState=db.collection('rooms').doc(mpRoomId).collection('gameState').doc('current')
-    .onSnapshot(snap=>{
-      if(!snap.exists)return;
-      const data=snap.data();
-      if(data&&data.pushedBy!==mpPlayerId)onStateReceived(data);
-    });
+    .onSnapshot(
+      snap=>{
+        if(!snap.exists)return;
+        const data=snap.data();
+        if(data&&data.pushedBy!==mpPlayerId)onStateReceived(data);
+      },
+      e=>console.warn('gameState snapshot error:',e)
+    );
   mpUnsubs=[unsubPlayers,unsubState];
   if(!mpIsHost)fetchLatestState();
 }
 async function fetchLatestState(){
+  if(!isMultiplayer||!mpRoomId)return;
   try{
-    const snap=await getDB().collection('rooms').doc(mpRoomId).collection('gameState').doc('current').get();
+    const snap=await getDB().collection('rooms').doc(mpRoomId).collection('gameState').doc('current').get({source:'server'});
     if(snap.exists){const data=snap.data();if(data&&data.pushedBy!==mpPlayerId)onStateReceived(data);}
   }catch(e){console.warn('fetchLatestState:',e);}
 }
@@ -2061,6 +2074,7 @@ function showMpGameScreen(){
   document.getElementById('controlDock').removeAttribute('hidden');
   document.getElementById('chatLog').innerHTML='';
   setTimeout(syncDockHeight,0);
+  _startMpPoll();
 }
 
 // ── STATE PUSH ──
