@@ -1875,7 +1875,8 @@ function getDB(){
 // ── Multiplayer state ──
 let isMultiplayer=false;
 let mpRoomId=null,mpRoomCode=null;
-let mpPlayerId=(()=>{let id=sessionStorage.getItem('mpPid');if(!id){id=crypto.randomUUID();sessionStorage.setItem('mpPid',id);}return id;})();
+const _uuid=()=>{if(typeof crypto!=='undefined'&&typeof crypto.randomUUID==='function')return crypto.randomUUID();return'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{const r=Math.random()*16|0;return(c==='x'?r:(r&0x3|0x8)).toString(16);});};
+let mpPlayerId=(()=>{let id=sessionStorage.getItem('mpPid');if(!id){id=_uuid();sessionStorage.setItem('mpPid',id);}return id;})();
 let mpPlayerName='';
 let mpCanonicalSeat=0;   // this player's seat in un-rotated (host) order
 let mpIsHost=false;
