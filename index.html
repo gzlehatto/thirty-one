@@ -6,8 +6,8 @@
   <title>Thirty-One Card Game</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@700;900&display=swap" rel="stylesheet">
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2">
-</script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -384,7 +384,11 @@
     #lobbyPlayerCount { font-size:0.8rem; opacity:0.6; margin-bottom:10px; }
     .online-btn { background:rgba(52,152,219,0.85); margin-top:10px; }
     .online-btn:hover { background:rgba(41,128,185,1); }
-    .mp-status-msg { font-size:0.82rem; opacity:0.65; margin-bottom:10px; min-height:18px; }
+    .mp-status-msg { font-size:0.9rem; font-weight:bold; margin-bottom:10px; min-height:20px; color:rgba(255,255,255,0.5); transition:color 0.2s; }
+    .mp-status-msg.error { color:#ff6b6b; }
+    .mp-status-msg.success { color:#5fffab; }
+    @keyframes inputShake { 0%,100%{transform:translateX(0)} 20%{transform:translateX(-8px)} 40%{transform:translateX(8px)} 60%{transform:translateX(-6px)} 80%{transform:translateX(6px)} }
+    .mp-input.input-error { border-color:#ff6b6b !important; animation:inputShake 0.4s ease-out; }
   </style>
 </head>
 <body>
@@ -1719,8 +1723,6 @@ function showResult(title,detail,scoresLine,matchOver){
   resultMatchOver=matchOver;
   roundSummary={title,detail,scoresLine,matchOver};
   if(isMultiplayer&&mpIsHost){
-    // Broadcast showdown directly so non-hosts see it immediately
-    if(mpChannel)mpChannel.send({type:'broadcast',event:'showdown',payload:{title,detail,scoresLine,matchOver}});
     setTimeout(pushState,60);
   }
   const po=document.getElementById('pilesOverlay');
@@ -1853,13 +1855,22 @@ if(window.ResizeObserver){
 }
 window.addEventListener('resize',syncDockHeight);
 // ════════════════════════════════════════════════════════════════
-// MULTIPLAYER  —  Supabase Realtime
+// MULTIPLAYER  —  Firebase Firestore
 // ════════════════════════════════════════════════════════════════
-const MP_URL  = 'https://hfxwmfpnkburzzhnmuje.supabase.co';
-const MP_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhmeHdtZnBua2J1cnp6aG5tdWplIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY3OTU3MDIsImV4cCI6MjA5MjM3MTcwMn0.MWLjw7v2wzmK1mLJ64ZgmK2ClCCz9XXfnAzuzjnbPNE';
+const FIREBASE_CONFIG={
+  apiKey:"AIzaSyBF2jbjC7hsFf5ZB9Ih7eiMGd3LTeRYAMM",
+  authDomain:"lehatto-family-games.firebaseapp.com",
+  projectId:"lehatto-family-games",
+  storageBucket:"lehatto-family-games.firebasestorage.app",
+  messagingSenderId:"1002053255824",
+  appId:"1:1002053255824:web:36d14889d7efe7b3934e15"
+};
 
-let _sb=null;
-function getSB(){if(!_sb)_sb=window.supabase.createClient(MP_URL,MP_KEY);return _sb;}
+let _db=null;
+function getDB(){
+  if(!_db){if(!firebase.apps.length)firebase.initializeApp(FIREBASE_CONFIG);_db=firebase.firestore();}
+  return _db;
+}
 
 // ── Multiplayer state ──
 let isMultiplayer=false;
@@ -1868,7 +1879,7 @@ let mpPlayerId=(()=>{let id=sessionStorage.getItem('mpPid');if(!id){id=crypto.ra
 let mpPlayerName='';
 let mpCanonicalSeat=0;   // this player's seat in un-rotated (host) order
 let mpIsHost=false;
-let mpChannel=null;
+let mpUnsubs=[];                 // Firebase unsubscribe functions
 let mpPushSeq=0;                 // monotonically increasing seq for our own pushes
 const mpSeenSeqs={};             // tracks highest seq seen from each sender (by playerId)
 let mpRevealState='idle';        // 'idle' | 'revealing' | 'done' — tracks non-host reveal progress
@@ -1894,9 +1905,22 @@ function showMpTab(tab){
   document.getElementById('tabCreate').classList.toggle('active',tab==='create');
   document.getElementById('tabJoin').classList.toggle('active',tab==='join');
 }
-function mpSetStatus(msg){document.getElementById('mpStatusMsg').textContent=msg;}
+function mpSetStatus(msg,type=''){
+  const el=document.getElementById('mpStatusMsg');
+  el.textContent=msg;
+  el.className='mp-status-msg'+(type?' '+type:'');
+}
+function mpShakeInput(id){
+  const el=document.getElementById(id);
+  if(!el)return;
+  el.classList.remove('input-error');
+  void el.offsetWidth;
+  el.classList.add('input-error');
+  el.focus();
+  setTimeout(()=>el.classList.remove('input-error'),600);
+}
 function leaveLobby(){
-  if(mpChannel){getSB().removeChannel(mpChannel);mpChannel=null;}
+  mpUnsubs.forEach(fn=>{try{fn();}catch(e){}});mpUnsubs=[];
   mpRoomId=null;mpRoomCode=null;mpIsHost=false;isMultiplayer=false;
   mpPushSeq=0;for(const k in mpSeenSeqs)delete mpSeenSeqs[k];
   mpRevealState='idle';mpPendingResult=null;
@@ -1906,45 +1930,51 @@ function leaveLobby(){
 // ── CREATE ROOM ──
 async function mpCreateRoom(){
   const name=document.getElementById('mpNameInput').value.trim();
-  if(!name){mpSetStatus('Enter your name first!');return;}
-  mpPlayerName=name; mpIsHost=true; mpCanonicalSeat=0;
+  if(!name){mpSetStatus('Enter your name first!','error');mpShakeInput('mpNameInput');return;}
+  mpPlayerName=name;mpIsHost=true;mpCanonicalSeat=0;
   const btn=document.getElementById('mpCreateBtn');btn.disabled=true;btn.textContent='Creating...';
-  const sb=getSB();
-  // Find unique 4-digit code
-  let code,tries=0;
-  while(tries++<20){
-    code=String(1000+Math.floor(Math.random()*9000));
-    const {data}=await sb.from('rooms').select('id').eq('code',code).eq('status','waiting').maybeSingle();
-    if(!data)break;
-  }
-  const {data:room,error}=await sb.from('rooms').insert({code,host_id:mpPlayerId,status:'waiting',max_players:6}).select().single();
-  btn.disabled=false;btn.textContent='Create Room 🎮';
-  if(error){mpSetStatus('Could not create room — try again.');console.error(error);return;}
-  mpRoomId=room.id; mpRoomCode=code; isMultiplayer=true;
-  await sb.from('room_players').insert({room_id:mpRoomId,player_id:mpPlayerId,display_name:name,seat:0,is_bot:false});
-  showWaitingRoom(); subscribeRoom();
+  const fail=(msg)=>{btn.disabled=false;btn.textContent='Create Room 🎮';mpSetStatus(msg,'error');};
+  try{
+    let db;try{db=getDB();}catch(e){fail('Could not connect — try refreshing the page.');return;}
+    let code,tries=0;
+    while(tries++<20){
+      code=String(1000+Math.floor(Math.random()*9000));
+      const snap=await db.collection('rooms').where('code','==',code).where('status','==','waiting').limit(1).get();
+      if(snap.empty)break;
+    }
+    const roomRef=await db.collection('rooms').add({code,hostId:mpPlayerId,status:'waiting',createdAt:firebase.firestore.FieldValue.serverTimestamp()});
+    mpRoomId=roomRef.id;mpRoomCode=code;isMultiplayer=true;
+    btn.disabled=false;btn.textContent='Create Room 🎮';
+    await db.collection('rooms').doc(mpRoomId).collection('players').doc(mpPlayerId).set({displayName:name,seat:0,isBot:false});
+    showWaitingRoom();subscribeRoom();
+  }catch(e){fail('Something went wrong — please try again.');console.error('mpCreateRoom:',e);}
 }
 
 // ── JOIN ROOM ──
 async function mpJoinRoom(){
   const name=document.getElementById('mpNameInput').value.trim();
   const code=document.getElementById('mpCodeInput').value.trim().replace(/\D/g,'');
-  if(!name){mpSetStatus('Enter your name!');return;}
-  if(code.length!==4){mpSetStatus('Enter the 4-digit room code!');return;}
-  mpPlayerName=name; mpIsHost=false;
+  if(!name){mpSetStatus('Enter your name!','error');mpShakeInput('mpNameInput');return;}
+  if(code.length!==4){mpSetStatus('Enter the 4-digit room code!','error');mpShakeInput('mpCodeInput');return;}
+  mpPlayerName=name;mpIsHost=false;
   const btn=document.getElementById('mpJoinBtn');btn.disabled=true;btn.textContent='Joining...';
-  const sb=getSB();
-  const {data:room,error}=await sb.from('rooms').select('*').eq('code',code).eq('status','waiting').maybeSingle();
-  btn.disabled=false;btn.textContent='Join Room →';
-  if(error||!room){mpSetStatus('Room not found or game already started!');return;}
-  mpRoomId=room.id; mpRoomCode=code; isMultiplayer=true;
-  const {data:existing}=await sb.from('room_players').select('seat').eq('room_id',mpRoomId);
-  const taken=new Set((existing||[]).map(p=>p.seat));
-  let seat=0; while(taken.has(seat))seat++;
-  mpCanonicalSeat=seat;
-  const {error:joinErr}=await sb.from('room_players').insert({room_id:mpRoomId,player_id:mpPlayerId,display_name:name,seat,is_bot:false});
-  if(joinErr){mpSetStatus('Could not join — room may be full.');return;}
-  showWaitingRoom(); subscribeRoom();
+  const fail=(msg)=>{btn.disabled=false;btn.textContent='Join Room →';mpSetStatus(msg,'error');};
+  try{
+    let db;try{db=getDB();}catch(e){fail('Could not connect — try refreshing the page.');return;}
+    const to=new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout')),8000));
+    let snap;
+    try{snap=await Promise.race([db.collection('rooms').where('code','==',code).where('status','==','waiting').limit(1).get(),to]);}
+    catch(e){fail(e.message==='timeout'?'Connection timed out — check your internet and try again.':'Connection error — check your internet and try again.');return;}
+    if(snap.empty){fail('Room not found or game already started!');return;}
+    const roomDoc=snap.docs[0];
+    mpRoomId=roomDoc.id;mpRoomCode=code;isMultiplayer=true;
+    const playersSnap=await db.collection('rooms').doc(mpRoomId).collection('players').get();
+    const taken=new Set(playersSnap.docs.map(d=>d.data().seat));
+    let seat=0;while(taken.has(seat))seat++;
+    mpCanonicalSeat=seat;
+    await db.collection('rooms').doc(mpRoomId).collection('players').doc(mpPlayerId).set({displayName:name,seat,isBot:false});
+    showWaitingRoom();subscribeRoom();
+  }catch(e){fail('Something went wrong — please try again.');console.error('mpJoinRoom:',e);}
 }
 
 // ── WAITING ROOM ──
@@ -1964,89 +1994,60 @@ function changeBotCount(delta){
 }
 function updateBotCountDisplay(){
   document.getElementById('lobbyBotCount').textContent=mpBotCount;
-  // Show total only when bots > 0
   const totalEl=document.getElementById('lobbyTotalCount');
-  // We don't know human count yet precisely, leave total dynamic in refreshLobbyList
   totalEl.textContent=mpBotCount>0?'('+mpBotCount+' bot'+(mpBotCount!==1?'s':'')+')'  :'';
 }
 async function refreshLobbyList(){
-  const sb=getSB();
-  const {data:rp}=await sb.from('room_players').select('*').eq('room_id',mpRoomId).order('seat');
-  if(!rp)return;
-  document.getElementById('lobbyPlayerList').innerHTML=rp.map(p=>`<div class="lobby-player-row">${p.is_bot?'🤖':p.player_id===mpPlayerId?'👤':'🎮'} <span>${p.display_name}</span>${p.seat===0?'<span class="lobby-host-badge">HOST</span>':''}</div>`).join('');
+  const db=getDB();
+  const snap=await db.collection('rooms').doc(mpRoomId).collection('players').orderBy('seat').get();
+  const rp=snap.docs.map(d=>({...d.data(),player_id:d.id}));
+  document.getElementById('lobbyPlayerList').innerHTML=rp.map(p=>`<div class="lobby-player-row">${p.isBot?'🤖':p.player_id===mpPlayerId?'👤':'🎮'} <span>${p.displayName}</span>${p.seat===0?'<span class="lobby-host-badge">HOST</span>':''}</div>`).join('');
   document.getElementById('lobbyPlayerCount').textContent=rp.length+' player'+(rp.length!==1?'s':'')+' in room';
 }
 
 // ── REALTIME SUBSCRIPTION ──
 function subscribeRoom(){
-  const sb=getSB();
-  mpChannel=sb.channel('room_'+mpRoomId)
-    .on('postgres_changes',{event:'*',schema:'public',table:'room_players',filter:'room_id=eq.'+mpRoomId},()=>{refreshLobbyList();})
-    .on('postgres_changes',{event:'*',schema:'public',table:'game_state',filter:'room_id=eq.'+mpRoomId},(payload)=>{if(payload.new&&payload.new.state)onStateReceived(payload.new.state);})
-    .on('broadcast',{event:'gamestate'},({payload})=>{if(payload&&payload.pushedBy!==mpPlayerId)onStateReceived(payload);})
-    .on('broadcast',{event:'showdown'},({payload})=>{
-      if(!mpIsHost&&payload)mpShowResult(payload.title,payload.detail,payload.scoresLine,payload.matchOver);
-    })
-    .subscribe((status)=>{if(status==='SUBSCRIBED'&&!mpIsHost){fetchLatestState();}});
-}
-function mpShowResult(title,detail,scoresLine,matchOver){
-  // Broadcast-based path: arrives after host's reveal. Route through same state machine
-  // as onStateReceived so we don't double-trigger if push #2 already handled it.
-  if(mpIsHost)return;
-  const rs={title,detail,scoresLine,matchOver};
-  resultMatchOver=matchOver;roundSummary=rs;
-  const showFinal=()=>{renderAll(true);renderAllLives();showResult(title,detail,scoresLine,matchOver);};
-  if(mpRevealState==='revealing'){
-    // Reveal already playing from push #1 — queue result
-    if(!mpPendingResult)mpPendingResult=rs;
-  } else if(mpRevealState==='done'){
-    // Reveal already done — show immediately
-    showFinal();
-  } else {
-    // Reveal not started yet (push #1 was missed or didn't trigger it) — start now
-    mpRevealState='revealing';
-    setPileInteractive(false);setKnockBtn(false);setTurnBanner('hidden','');
-    renderAll();
-    const sm=players.map((p,i)=>({idx:i,player:p,score:p.hand.length>0?handScore(p.hand):null})).filter(x=>x.score!==null);
-    const has31mp=sm.some(x=>x.score===31);
-    if(has31mp){
-      SFX.win31();renderAll(true);
-      setTimeout(()=>{flashResultGlows(sm);setTimeout(()=>{mpRevealState='done';showFinal();},1400);},600);
-    } else {
-      startShowdown(sm,()=>{mpRevealState='done';showFinal();});
-    }
-  }
+  const db=getDB();
+  const unsubPlayers=db.collection('rooms').doc(mpRoomId).collection('players')
+    .onSnapshot(()=>refreshLobbyList());
+  const unsubState=db.collection('rooms').doc(mpRoomId).collection('gameState').doc('current')
+    .onSnapshot(snap=>{
+      if(!snap.exists)return;
+      const data=snap.data();
+      if(data&&data.pushedBy!==mpPlayerId)onStateReceived(data);
+    });
+  mpUnsubs=[unsubPlayers,unsubState];
+  if(!mpIsHost)fetchLatestState();
 }
 async function fetchLatestState(){
   try{
-    const {data}=await getSB().from('game_state').select('state').eq('room_id',mpRoomId).maybeSingle();
-    if(data?.state&&data.state.pushedBy!==mpPlayerId)onStateReceived(data.state);
+    const snap=await getDB().collection('rooms').doc(mpRoomId).collection('gameState').doc('current').get();
+    if(snap.exists){const data=snap.data();if(data&&data.pushedBy!==mpPlayerId)onStateReceived(data);}
   }catch(e){console.warn('fetchLatestState:',e);}
 }
 
 // ── START ONLINE GAME (host only) ──
 async function mpStartGame(){
   if(!mpIsHost)return;
-  const sb=getSB();
-  const {data:rp}=await sb.from('room_players').select('*').eq('room_id',mpRoomId).order('seat');
-  if(!rp||!rp.length)return;
+  const db=getDB();
+  const snap=await db.collection('rooms').doc(mpRoomId).collection('players').orderBy('seat').get();
+  const rp=snap.docs.map(d=>({...d.data(),player_id:d.id}));
+  if(!rp.length)return;
   document.getElementById('lobbyStartBtn').disabled=true;
   document.getElementById('lobbyStartBtn').textContent='Starting...';
-
   houseRuleKnockLow=document.getElementById('ruleKnockLow')?.checked??true;
   houseRuleTripleAces=document.getElementById('ruleTripleAces')?.checked??true;
   houseRuleFreeRide=document.getElementById('ruleFreeRide')?.checked??true;
-
   const humanSeats=rp.length;
   const totalSeats=Math.max(humanSeats+mpBotCount,2);
-  numPlayers=totalSeats; roundCount=0;
+  numPlayers=totalSeats;roundCount=0;
   players=Array.from({length:totalSeats},(_,i)=>{
     const h=rp.find(p=>p.seat===i);
-    if(h)return{name:h.display_name,isHuman:true,playerId:h.player_id,lives:maxLives(),hand:[]};
+    if(h)return{name:h.displayName,isHuman:true,playerId:h.player_id,lives:maxLives(),hand:[]};
     return{name:PLAYER_NAMES[i]||'Bot '+(i+1),isHuman:false,playerId:null,lives:maxLives(),hand:[]};
   });
-  dealerIdx=totalSeats-1; isMultiplayer=true;
-  await sb.from('rooms').update({status:'playing'}).eq('id',mpRoomId);
+  dealerIdx=totalSeats-1;isMultiplayer=true;
+  await db.collection('rooms').doc(mpRoomId).update({status:'playing'});
   showMpGameScreen();
   startNewRound();
   setTimeout(pushState,300);
@@ -2069,9 +2070,7 @@ async function pushState(){
   mpPushSeq++;
   const payload={...canonical,pushedBy:mpPlayerId,pushSeq:mpPushSeq};
   try{
-    // Broadcast first (fast) then persist to DB (for late joiners)
-    if(mpChannel)mpChannel.send({type:'broadcast',event:'gamestate',payload});
-    await getSB().from('game_state').upsert({room_id:mpRoomId,state:payload,updated_at:new Date().toISOString()},{onConflict:'room_id'});
+    await getDB().collection('rooms').doc(mpRoomId).collection('gameState').doc('current').set(payload);
   }catch(e){console.error('pushState:',e);}
 }
 
