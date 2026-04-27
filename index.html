@@ -389,9 +389,47 @@
     .mp-status-msg.success { color:#5fffab; }
     @keyframes inputShake { 0%,100%{transform:translateX(0)} 20%{transform:translateX(-8px)} 40%{transform:translateX(8px)} 60%{transform:translateX(-6px)} 80%{transform:translateX(6px)} }
     .mp-input.input-error { border-color:#ff6b6b !important; animation:inputShake 0.4s ease-out; }
+
+    /* ── Profile / Name Picker Screen ── */
+    #profileScreen { max-width:480px; margin:60px auto 0; text-align:center; }
+    .profile-box { background:rgba(0,0,0,0.35); border-radius:16px; padding:30px 28px; border:2px solid rgba(255,255,255,0.1); }
+    .profile-box h2 { font-size:1.3rem; margin-bottom:6px; opacity:0.9; }
+    .profile-subtitle { font-size:0.85rem; opacity:0.55; margin-bottom:20px; }
+    .name-grid { display:flex; flex-wrap:wrap; gap:10px; justify-content:center; margin-bottom:22px; }
+    .name-chip { padding:10px 18px; border-radius:24px; border:2px solid rgba(255,255,255,0.2); background:rgba(255,255,255,0.07); color:white; font-size:1rem; font-weight:bold; cursor:pointer; transition:background 0.15s,border-color 0.15s,transform 0.1s; user-select:none; }
+    .name-chip:hover { background:rgba(255,255,255,0.14); }
+    .name-chip:active { transform:scale(0.94); }
+    .name-chip.selected { background:rgba(46,204,113,0.28); border-color:#2ecc71; color:#5fffab; }
+    #profileContinueBtn:disabled { opacity:0.35; cursor:default; }
+
+    /* ── Stats Modal ── */
+    #statsModal { display:none; position:fixed; inset:0; z-index:200; background:rgba(0,0,0,0.78); align-items:center; justify-content:center; padding:20px; }
+    #statsModal.open { display:flex; }
+    .stats-box { background:#0f3d22; border:2px solid rgba(255,255,255,0.15); border-radius:18px; padding:28px 32px; max-width:420px; width:100%; max-height:90vh; overflow-y:auto; position:relative; }
+    .stats-box h2 { font-size:1.3rem; margin-bottom:4px; }
+    .stats-player-label { font-size:0.85rem; opacity:0.55; margin-bottom:20px; }
+    .stats-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:18px; }
+    .stat-card { background:rgba(255,255,255,0.07); border-radius:12px; padding:14px 12px; text-align:center; }
+    .stat-value { font-size:1.8rem; font-weight:900; color:#5fffab; line-height:1; }
+    .stat-label { font-size:0.72rem; opacity:0.6; margin-top:4px; text-transform:uppercase; letter-spacing:0.8px; }
+    .stats-close-btn { margin-top:6px; background:transparent; border:1px solid rgba(255,255,255,0.25); color:rgba(255,255,255,0.7); border-radius:8px; padding:8px 20px; cursor:pointer; font-size:0.9rem; width:100%; }
+    .stats-close-btn:hover { background:rgba(255,255,255,0.08); }
+    .stats-loading { text-align:center; opacity:0.55; padding:20px 0; }
+    .switch-player-btn { background:transparent; border:none; color:rgba(255,255,255,0.45); font-size:0.8rem; cursor:pointer; margin-top:10px; text-decoration:underline; display:block; width:100%; }
+    .switch-player-btn:hover { color:rgba(255,255,255,0.75); }
   </style>
 </head>
 <body>
+
+<div id="profileScreen" style="display:none">
+  <div class="profile-box">
+    <h2>👋 Who's playing?</h2>
+    <p class="profile-subtitle">Tap your name to track your stats</p>
+    <div class="name-grid" id="nameGrid"></div>
+    <button class="start-btn" id="profileContinueBtn" onclick="continueFromProfile()" disabled>Let's Play →</button>
+    <button class="switch-player-btn" onclick="showProfileScreen()">Not you? Switch player</button>
+  </div>
+</div>
 
 <div id="setupScreen">
 
@@ -430,6 +468,7 @@
     </div>
     <button class="start-btn" onclick="startMatch()">Deal Cards ▶</button>
     <button class="start-btn online-btn" onclick="showOnlineMenu()">Play Online 🌐</button>
+    <button class="start-btn" id="statsBtn" onclick="openStatsModal()" style="background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);margin-top:2px;">📊 My Stats</button>
     <details class="htp-details">
       <summary>How to Play</summary>
       <div class="htp-body" id="htpSetupBody"></div>
@@ -755,6 +794,11 @@ function closeHtp(){document.getElementById('htpModal').classList.remove('open')
 document.addEventListener('DOMContentLoaded',()=>{
   document.getElementById('htpSetupBody').innerHTML=HTP_HTML;
   document.getElementById('htpModalBody').innerHTML=HTP_HTML;
+  // Start at profile picker if no player has been selected yet on this device
+  if(!currentPlayerName){
+    document.getElementById('setupScreen').style.display='none';
+    showProfileScreen();
+  }
 });
 
 function makeSuitBtn(suit, clsIdx, clickFn){
@@ -811,6 +855,7 @@ function startMatch(){
   houseRuleTripleAces=document.getElementById('ruleTripleAces').checked;
   houseRuleFreeRide=document.getElementById('ruleFreeRide').checked;
   roundCount=0;
+  _newGameSessionId(); // generate fresh session ID for stat logging
   players=PLAYER_NAMES.slice(0,numPlayers).map((name,i)=>({name,isHuman:i===0,lives:maxLives(),hand:[]}));
   dealerIdx=numPlayers-1;
   document.getElementById('setupScreen').style.display='none';
@@ -1264,6 +1309,8 @@ function endRound(){
   gameActive=false;setKnockBtn(false);setPileInteractive(false);
   setTurnBanner('hidden','');clearKnockedBadges();dismissPilesOverlay();
   document.querySelectorAll('.zone,.opp-mini').forEach(z=>z.classList.remove('active-you','active-them'));
+  // Snapshot lives before any decrement so showResult can determine winners
+  _livesSnapshot=players.map(p=>p.lives);
   const scoreMap=players.map((p,i)=>({idx:i,player:p,score:p.lives>0?handScore(p.hand):null})).filter(x=>x.score!==null);
   // House Rule: 5-or-Under on the Deal
   if(houseRuleKnockLow&&wasKnockedOffDeal){
@@ -1676,6 +1723,7 @@ function setKnockedBadge(pi){
 function clearKnockedBadges(){document.querySelectorAll('.chip-knocked').forEach(b=>b.remove());}
 
 let resultMatchOver=false,roundSummary=null;
+let _livesSnapshot=[]; // captured at start of endRound, used for stat logging
 function launchConfetti(){
   const canvas=document.getElementById('confettiCanvas');
   const ctx=canvas.getContext('2d');
@@ -1730,6 +1778,30 @@ function mpIsInControl(){
 function showResult(title,detail,scoresLine,matchOver){
   resultMatchOver=matchOver;
   roundSummary={title,detail,scoresLine,matchOver};
+  // ── Log round stats (host only; non-host would double-log) ──
+  if(!isMultiplayer||mpIsHost){
+    try{
+      const scoreMap=players.map((p,i)=>({idx:i,player:p,score:p.hand.length>0?handScore(p.hand):null}));
+      const prevLives=_livesSnapshot.length?_livesSnapshot:players.map(p=>p.lives);
+      const playerData=scoreMap.map(x=>{
+        const prevLife=prevLives[x.idx]??x.player.lives;
+        const chipsLost=Math.max(0,prevLife-x.player.lives);
+        const won=chipsLost===0&&players.some((p,i)=>i!==x.idx&&(prevLives[i]??p.lives)>p.lives);
+        return{name:x.player.name,finalScore:x.score,won,knocked:knockedByIdx===x.idx,got31:x.score===31,chipsLost};
+      });
+      const participantNames=players.map(p=>p.name);
+      getDB().collection('roundLogs').add({
+        sessionId:_currentGameSessionId||_uuid(),
+        game:'thirty-one',
+        playedAt:firebase.firestore.FieldValue.serverTimestamp(),
+        roundNumber:roundCount,
+        matchOver:!!matchOver,
+        localPlayerName:currentPlayerName||'',
+        participantNames,
+        players:playerData,
+      }).catch(e=>console.warn('logRound:',e));
+    }catch(e){console.warn('logRound err:',e);}
+  }
   if(isMultiplayer&&mpIsHost){
     setTimeout(pushState,60);
   }
@@ -1886,6 +1958,119 @@ let isMultiplayer=false;
 let mpRoomId=null,mpRoomCode=null;
 const _uuid=()=>{if(typeof crypto!=='undefined'&&typeof crypto.randomUUID==='function')return crypto.randomUUID();return'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{const r=Math.random()*16|0;return(c==='x'?r:(r&0x3|0x8)).toString(16);});};
 let mpPlayerId=(()=>{let id=sessionStorage.getItem('mpPid');if(!id){id=_uuid();sessionStorage.setItem('mpPid',id);}return id;})();
+// ── Family Roster & Player Profile ──
+const FAMILY_NAMES=['Annie','Julian','Max','Xavi','Charlie','Grandmom','PopPop','Jimmy','Zaq','Murph','Zack','Iris','Chris','Paula','Kevin'];
+let currentPlayerName=localStorage.getItem('lfgPlayerName')||'';
+let _currentGameSessionId=null; // UUID set at match start, reused across rounds
+
+function showProfileScreen(){
+  document.getElementById('profileScreen').style.display='';
+  document.getElementById('setupScreen').style.display='none';
+  document.getElementById('lobbyScreen').style.display='none';
+  const grid=document.getElementById('nameGrid');
+  grid.innerHTML='';
+  FAMILY_NAMES.forEach(name=>{
+    const chip=document.createElement('button');
+    chip.className='name-chip'+(name===currentPlayerName?' selected':'');
+    chip.textContent=name;
+    chip.onclick=()=>{
+      currentPlayerName=name;
+      grid.querySelectorAll('.name-chip').forEach(c=>c.classList.remove('selected'));
+      chip.classList.add('selected');
+      document.getElementById('profileContinueBtn').disabled=false;
+    };
+    grid.appendChild(chip);
+  });
+  document.getElementById('profileContinueBtn').disabled=!currentPlayerName;
+}
+
+function continueFromProfile(){
+  if(!currentPlayerName)return;
+  localStorage.setItem('lfgPlayerName',currentPlayerName);
+  document.getElementById('profileScreen').style.display='none';
+  showSetup();
+}
+
+// ── Stats Modal ──
+function openStatsModal(){
+  const modal=document.getElementById('statsModal');
+  modal.classList.add('open');
+  document.getElementById('statsPlayerLabel').textContent=currentPlayerName?'Showing stats for '+currentPlayerName:'No player selected';
+  if(!currentPlayerName){document.getElementById('statsContent').innerHTML='<p class="stats-loading">Pick a player first.</p>';return;}
+  document.getElementById('statsContent').innerHTML='<p class="stats-loading">Loading…</p>';
+  loadMyStats(currentPlayerName);
+}
+function closeStatsModal(){document.getElementById('statsModal').classList.remove('open');}
+
+async function loadMyStats(playerName){
+  try{
+    const db=getDB();
+    // Fetch last 200 rounds this player participated in
+    const snap=await db.collection('roundLogs')
+      .where('participantNames','array-contains',playerName)
+      .orderBy('playedAt','desc').limit(200).get({source:'server'});
+    if(snap.empty){document.getElementById('statsContent').innerHTML='<p class="stats-loading">No rounds recorded yet. Play some games!</p>';return;}
+    let rounds=0,wins=0,totalScore=0,knocks=0,knockWins=0,thirtyOnes=0,chipsLost=0;
+    snap.forEach(doc=>{
+      const d=doc.data();
+      const me=d.players?.find(p=>p.name===playerName);
+      if(!me)return;
+      rounds++;
+      if(me.won)wins++;
+      if(me.finalScore!=null)totalScore+=me.finalScore;
+      if(me.knocked)knocks++;
+      if(me.knocked&&me.won)knockWins++;
+      if(me.got31)thirtyOnes++;
+      if(me.chipsLost)chipsLost+=me.chipsLost;
+    });
+    const winPct=rounds>0?Math.round(wins/rounds*100):0;
+    const avgScore=rounds>0?Math.round(totalScore/rounds):0;
+    const knockPct=knocks>0?Math.round(knockWins/knocks*100):0;
+    document.getElementById('statsContent').innerHTML=`
+      <div class="stats-grid">
+        <div class="stat-card"><div class="stat-value">${rounds}</div><div class="stat-label">Rounds Played</div></div>
+        <div class="stat-card"><div class="stat-value">${winPct}%</div><div class="stat-label">Win Rate</div></div>
+        <div class="stat-card"><div class="stat-value">${avgScore}</div><div class="stat-label">Avg Score</div></div>
+        <div class="stat-card"><div class="stat-value">${thirtyOnes}</div><div class="stat-label">31s Hit</div></div>
+        <div class="stat-card"><div class="stat-value">${knocks}</div><div class="stat-label">Total Knocks</div></div>
+        <div class="stat-card"><div class="stat-value">${knocks>0?knockPct+'%':'—'}</div><div class="stat-label">Knock Success</div></div>
+      </div>
+      <p style="font-size:0.75rem;opacity:0.45;text-align:center">${rounds} round${rounds!==1?'s':''} recorded</p>`;
+  }catch(e){
+    console.error('loadMyStats:',e);
+    document.getElementById('statsContent').innerHTML='<p class="stats-loading">Couldn\'t load stats. Check connection.</p>';
+  }
+}
+
+// ── Stat Logging ──
+function _newGameSessionId(){
+  _currentGameSessionId=_uuid();
+}
+async function logRoundStats(scoreMap,winnersIdxs,matchOver,roundNum){
+  if(!currentPlayerName)return; // no player selected, skip
+  try{
+    const db=getDB();
+    const participantNames=players.filter(p=>p.isHuman||true).map(p=>p.name); // all players
+    const playerData=scoreMap.map(x=>{
+      const isWinner=winnersIdxs.includes(x.idx);
+      const got31=x.score===31;
+      const knocked=knockedByIdx===x.idx;
+      const chipsLost=x.player.lives < (x._prevLives??x.player.lives) ? (x._prevLives??x.player.lives)-x.player.lives : 0;
+      return{name:x.player.name,finalScore:x.score,won:isWinner,knocked,got31,chipsLost};
+    });
+    await db.collection('roundLogs').add({
+      sessionId:_currentGameSessionId||_uuid(),
+      game:'thirty-one',
+      playedAt:firebase.firestore.FieldValue.serverTimestamp(),
+      roundNumber:roundNum||roundCount,
+      matchOver:!!matchOver,
+      localPlayerName:currentPlayerName,
+      participantNames,
+      players:playerData,
+    });
+  }catch(e){console.warn('logRoundStats:',e);}
+}
+
 let mpPlayerName='';
 let mpCanonicalSeat=0;   // this player's seat in un-rotated (host) order
 let mpIsHost=false;
@@ -1904,6 +2089,11 @@ function showOnlineMenu(){
   document.getElementById('lobbyEntry').style.display='';
   document.getElementById('lobbyWaiting').style.display='none';
   document.getElementById('mpStatusMsg').textContent='';
+  // Pre-fill the name input from the profile selection
+  if(currentPlayerName){
+    const ni=document.getElementById('mpNameInput');
+    if(ni&&!ni.value)ni.value=currentPlayerName;
+  }
   setTimeout(()=>document.getElementById('mpNameInput').focus(),100);
 }
 function showSetupFromLobby(){
@@ -2063,7 +2253,7 @@ async function mpStartGame(){
   houseRuleFreeRide=document.getElementById('ruleFreeRide')?.checked??true;
   const humanSeats=rp.length;
   const totalSeats=Math.max(humanSeats+mpBotCount,2);
-  numPlayers=totalSeats;roundCount=0;
+  numPlayers=totalSeats;roundCount=0;_newGameSessionId();
   players=Array.from({length:totalSeats},(_,i)=>{
     const h=rp.find(p=>p.seat===i);
     if(h)return{name:h.displayName,isHuman:true,playerId:h.player_id,lives:maxLives(),hand:[]};
@@ -2306,5 +2496,16 @@ async function mpPlayAgain(){
 
 
 </script>
+
+<!-- Stats Modal -->
+<div id="statsModal" onclick="if(event.target===this)closeStatsModal()">
+  <div class="stats-box">
+    <h2>📊 Stats</h2>
+    <p class="stats-player-label" id="statsPlayerLabel"></p>
+    <div id="statsContent"><p class="stats-loading">Loading…</p></div>
+    <button class="stats-close-btn" onclick="closeStatsModal()">Close</button>
+    <button class="switch-player-btn" onclick="closeStatsModal();showProfileScreen()">Switch player</button>
+  </div>
+</div>
 </body>
 </html>
